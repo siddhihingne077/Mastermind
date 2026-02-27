@@ -1,4 +1,6 @@
 Wheel-Version: 1.0
-Generator: flit 3.12.0
-Root-Is-Purelib: true
-Tag: py3-none-any
+Generator: setuptools (80.10.1)
+Root-Is-Purelib: false
+Tag: cp39-cp39-macosx_11_0_arm64
+Generator: delocate 0.13.0
+

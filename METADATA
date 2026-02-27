@@ -1,109 +1,243 @@
 Metadata-Version: 2.4
-Name: Werkzeug
-Version: 3.1.6
-Summary: The comprehensive WSGI web application library.
-Maintainer-email: Pallets <contact@palletsprojects.com>
-Requires-Python: >=3.9
-Description-Content-Type: text/markdown
-License-Expression: BSD-3-Clause
+Name: SQLAlchemy
+Version: 2.0.46
+Summary: Database Abstraction Library
+Home-page: https://www.sqlalchemy.org
+Author: Mike Bayer
+Author-email: mike_mp@zzzcomputing.com
+License: MIT
+Project-URL: Documentation, https://docs.sqlalchemy.org
+Project-URL: Issue Tracker, https://github.com/sqlalchemy/sqlalchemy/
 Classifier: Development Status :: 5 - Production/Stable
-Classifier: Environment :: Web Environment
 Classifier: Intended Audience :: Developers
 Classifier: Operating System :: OS Independent
 Classifier: Programming Language :: Python
-Classifier: Topic :: Internet :: WWW/HTTP :: Dynamic Content
-Classifier: Topic :: Internet :: WWW/HTTP :: WSGI
-Classifier: Topic :: Internet :: WWW/HTTP :: WSGI :: Application
-Classifier: Topic :: Internet :: WWW/HTTP :: WSGI :: Middleware
-Classifier: Topic :: Software Development :: Libraries :: Application Frameworks
-Classifier: Typing :: Typed
-License-File: LICENSE.txt
-Requires-Dist: markupsafe>=2.1.1
-Requires-Dist: watchdog>=2.3 ; extra == "watchdog"
-Project-URL: Changes, https://werkzeug.palletsprojects.com/page/changes/
-Project-URL: Chat, https://discord.gg/pallets
-Project-URL: Documentation, https://werkzeug.palletsprojects.com/
-Project-URL: Donate, https://palletsprojects.com/donate
-Project-URL: Source, https://github.com/pallets/werkzeug/
-Provides-Extra: watchdog
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Programming Language :: Python :: Implementation :: CPython
+Classifier: Programming Language :: Python :: Implementation :: PyPy
+Classifier: Topic :: Database :: Front-Ends
+Requires-Python: >=3.7
+Description-Content-Type: text/x-rst
+License-File: LICENSE
+Requires-Dist: importlib-metadata; python_version < "3.8"
+Requires-Dist: greenlet>=1; platform_machine == "aarch64" or (platform_machine == "ppc64le" or (platform_machine == "x86_64" or (platform_machine == "amd64" or (platform_machine == "AMD64" or (platform_machine == "win32" or platform_machine == "WIN32")))))
+Requires-Dist: typing-extensions>=4.6.0
+Provides-Extra: asyncio
+Requires-Dist: greenlet>=1; extra == "asyncio"
+Provides-Extra: mypy
+Requires-Dist: mypy>=0.910; extra == "mypy"
+Provides-Extra: mssql
+Requires-Dist: pyodbc; extra == "mssql"
+Provides-Extra: mssql-pymssql
+Requires-Dist: pymssql; extra == "mssql-pymssql"
+Provides-Extra: mssql-pyodbc
+Requires-Dist: pyodbc; extra == "mssql-pyodbc"
+Provides-Extra: mysql
+Requires-Dist: mysqlclient>=1.4.0; extra == "mysql"
+Provides-Extra: mysql-connector
+Requires-Dist: mysql-connector-python; extra == "mysql-connector"
+Provides-Extra: mariadb-connector
+Requires-Dist: mariadb!=1.1.10,!=1.1.2,!=1.1.5,>=1.0.1; extra == "mariadb-connector"
+Provides-Extra: oracle
+Requires-Dist: cx_oracle>=8; extra == "oracle"
+Provides-Extra: oracle-oracledb
+Requires-Dist: oracledb>=1.0.1; extra == "oracle-oracledb"
+Provides-Extra: postgresql
+Requires-Dist: psycopg2>=2.7; extra == "postgresql"
+Provides-Extra: postgresql-pg8000
+Requires-Dist: pg8000>=1.29.1; extra == "postgresql-pg8000"
+Provides-Extra: postgresql-asyncpg
+Requires-Dist: greenlet>=1; extra == "postgresql-asyncpg"
+Requires-Dist: asyncpg; extra == "postgresql-asyncpg"
+Provides-Extra: postgresql-psycopg2binary
+Requires-Dist: psycopg2-binary; extra == "postgresql-psycopg2binary"
+Provides-Extra: postgresql-psycopg2cffi
+Requires-Dist: psycopg2cffi; extra == "postgresql-psycopg2cffi"
+Provides-Extra: postgresql-psycopg
+Requires-Dist: psycopg>=3.0.7; extra == "postgresql-psycopg"
+Provides-Extra: postgresql-psycopgbinary
+Requires-Dist: psycopg[binary]>=3.0.7; extra == "postgresql-psycopgbinary"
+Provides-Extra: pymysql
+Requires-Dist: pymysql; extra == "pymysql"
+Provides-Extra: aiomysql
+Requires-Dist: greenlet>=1; extra == "aiomysql"
+Requires-Dist: aiomysql>=0.2.0; extra == "aiomysql"
+Provides-Extra: aioodbc
+Requires-Dist: greenlet>=1; extra == "aioodbc"
+Requires-Dist: aioodbc; extra == "aioodbc"
+Provides-Extra: asyncmy
+Requires-Dist: greenlet>=1; extra == "asyncmy"
+Requires-Dist: asyncmy!=0.2.4,!=0.2.6,>=0.2.3; extra == "asyncmy"
+Provides-Extra: aiosqlite
+Requires-Dist: greenlet>=1; extra == "aiosqlite"
+Requires-Dist: aiosqlite; extra == "aiosqlite"
+Requires-Dist: typing_extensions!=3.10.0.1; extra == "aiosqlite"
+Provides-Extra: sqlcipher
+Requires-Dist: sqlcipher3_binary; extra == "sqlcipher"
+Dynamic: license-file
 
-<div align="center"><img src="https://raw.githubusercontent.com/pallets/werkzeug/refs/heads/stable/docs/_static/werkzeug-name.svg" alt="" height="150"></div>
+SQLAlchemy
+==========
 
-# Werkzeug
+|PyPI| |Python| |Downloads|
 
-*werkzeug* German noun: "tool". Etymology: *werk* ("work"), *zeug* ("stuff")
+.. |PyPI| image:: https://img.shields.io/pypi/v/sqlalchemy
+    :target: https://pypi.org/project/sqlalchemy
+    :alt: PyPI
 
-Werkzeug is a comprehensive [WSGI][] web application library. It began as
-a simple collection of various utilities for WSGI applications and has
-become one of the most advanced WSGI utility libraries.
+.. |Python| image:: https://img.shields.io/pypi/pyversions/sqlalchemy
+    :target: https://pypi.org/project/sqlalchemy
+    :alt: PyPI - Python Version
 
-It includes:
-
--   An interactive debugger that allows inspecting stack traces and
-    source code in the browser with an interactive interpreter for any
-    frame in the stack.
--   A full-featured request object with objects to interact with
-    headers, query args, form data, files, and cookies.
--   A response object that can wrap other WSGI applications and handle
-    streaming data.
--   A routing system for matching URLs to endpoints and generating URLs
-    for endpoints, with an extensible system for capturing variables
-    from URLs.
--   HTTP utilities to handle entity tags, cache control, dates, user
-    agents, cookies, files, and more.
--   A threaded WSGI server for use while developing applications
-    locally.
--   A test client for simulating HTTP requests during testing without
-    requiring running a server.
-
-Werkzeug doesn't enforce any dependencies. It is up to the developer to
-choose a template engine, database adapter, and even how to handle
-requests. It can be used to build all sorts of end user applications
-such as blogs, wikis, or bulletin boards.
-
-[Flask][] wraps Werkzeug, using it to handle the details of WSGI while
-providing more structure and patterns for defining powerful
-applications.
-
-[WSGI]: https://wsgi.readthedocs.io/en/latest/
-[Flask]: https://www.palletsprojects.com/p/flask/
+.. |Downloads| image:: https://static.pepy.tech/badge/sqlalchemy/month
+    :target: https://pepy.tech/project/sqlalchemy
+    :alt: PyPI - Downloads
 
 
-## A Simple Example
+The Python SQL Toolkit and Object Relational Mapper
 
-```python
-# save this as app.py
-from werkzeug.wrappers import Request, Response
+Introduction
+-------------
 
-@Request.application
-def application(request: Request) -> Response:
-    return Response("Hello, World!")
+SQLAlchemy is the Python SQL toolkit and Object Relational Mapper
+that gives application developers the full power and
+flexibility of SQL. SQLAlchemy provides a full suite
+of well known enterprise-level persistence patterns,
+designed for efficient and high-performing database
+access, adapted into a simple and Pythonic domain
+language.
 
-if __name__ == "__main__":
-    from werkzeug.serving import run_simple
-    run_simple("127.0.0.1", 5000, application)
-```
+Major SQLAlchemy features include:
 
-```
-$ python -m app
-  * Running on http://127.0.0.1:5000/ (Press CTRL+C to quit)
-```
+* An industrial strength ORM, built
+  from the core on the identity map, unit of work,
+  and data mapper patterns.   These patterns
+  allow transparent persistence of objects
+  using a declarative configuration system.
+  Domain models
+  can be constructed and manipulated naturally,
+  and changes are synchronized with the
+  current transaction automatically.
+* A relationally-oriented query system, exposing
+  the full range of SQL's capabilities
+  explicitly, including joins, subqueries,
+  correlation, and most everything else,
+  in terms of the object model.
+  Writing queries with the ORM uses the same
+  techniques of relational composition you use
+  when writing SQL.  While you can drop into
+  literal SQL at any time, it's virtually never
+  needed.
+* A comprehensive and flexible system
+  of eager loading for related collections and objects.
+  Collections are cached within a session,
+  and can be loaded on individual access, all
+  at once using joins, or by query per collection
+  across the full result set.
+* A Core SQL construction system and DBAPI
+  interaction layer.  The SQLAlchemy Core is
+  separate from the ORM and is a full database
+  abstraction layer in its own right, and includes
+  an extensible Python-based SQL expression
+  language, schema metadata, connection pooling,
+  type coercion, and custom types.
+* All primary and foreign key constraints are
+  assumed to be composite and natural.  Surrogate
+  integer primary keys are of course still the
+  norm, but SQLAlchemy never assumes or hardcodes
+  to this model.
+* Database introspection and generation.  Database
+  schemas can be "reflected" in one step into
+  Python structures representing database metadata;
+  those same structures can then generate
+  CREATE statements right back out - all within
+  the Core, independent of the ORM.
 
+SQLAlchemy's philosophy:
 
-## Donate
+* SQL databases behave less and less like object
+  collections the more size and performance start to
+  matter; object collections behave less and less like
+  tables and rows the more abstraction starts to matter.
+  SQLAlchemy aims to accommodate both of these
+  principles.
+* An ORM doesn't need to hide the "R".   A relational
+  database provides rich, set-based functionality
+  that should be fully exposed.   SQLAlchemy's
+  ORM provides an open-ended set of patterns
+  that allow a developer to construct a custom
+  mediation layer between a domain model and
+  a relational schema, turning the so-called
+  "object relational impedance" issue into
+  a distant memory.
+* The developer, in all cases, makes all decisions
+  regarding the design, structure, and naming conventions
+  of both the object model as well as the relational
+  schema.   SQLAlchemy only provides the means
+  to automate the execution of these decisions.
+* With SQLAlchemy, there's no such thing as
+  "the ORM generated a bad query" - you
+  retain full control over the structure of
+  queries, including how joins are organized,
+  how subqueries and correlation is used, what
+  columns are requested.  Everything SQLAlchemy
+  does is ultimately the result of a developer-initiated 
+  decision.
+* Don't use an ORM if the problem doesn't need one.
+  SQLAlchemy consists of a Core and separate ORM
+  component.   The Core offers a full SQL expression
+  language that allows Pythonic construction
+  of SQL constructs that render directly to SQL
+  strings for a target database, returning
+  result sets that are essentially enhanced DBAPI
+  cursors.
+* Transactions should be the norm.  With SQLAlchemy's
+  ORM, nothing goes to permanent storage until
+  commit() is called.  SQLAlchemy encourages applications
+  to create a consistent means of delineating
+  the start and end of a series of operations.
+* Never render a literal value in a SQL statement.
+  Bound parameters are used to the greatest degree
+  possible, allowing query optimizers to cache
+  query plans effectively and making SQL injection
+  attacks a non-issue.
 
-The Pallets organization develops and supports Werkzeug and other
-popular packages. In order to grow the community of contributors and
-users, and allow the maintainers to devote more time to the projects,
-[please donate today][].
+Documentation
+-------------
 
-[please donate today]: https://palletsprojects.com/donate
+Latest documentation is at:
 
-## Contributing
+https://www.sqlalchemy.org/docs/
 
-See our [detailed contributing documentation][contrib] for many ways to
-contribute, including reporting issues, requesting features, asking or answering
-questions, and making PRs.
+Installation / Requirements
+---------------------------
 
-[contrib]: https://palletsprojects.com/contributing/
+Full documentation for installation is at
+`Installation <https://www.sqlalchemy.org/docs/intro.html#installation>`_.
+
+Getting Help / Development / Bug reporting
+------------------------------------------
+
+Please refer to the `SQLAlchemy Community Guide <https://www.sqlalchemy.org/support.html>`_.
+
+Code of Conduct
+---------------
+
+Above all, SQLAlchemy places great emphasis on polite, thoughtful, and
+constructive communication between users and developers.
+Please see our current Code of Conduct at
+`Code of Conduct <https://www.sqlalchemy.org/codeofconduct.html>`_.
+
+License
+-------
+
+SQLAlchemy is distributed under the `MIT license
+<https://www.opensource.org/licenses/mit-license.php>`_.
 
