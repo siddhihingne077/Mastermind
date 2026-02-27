@@ -1,167 +1,168 @@
-from __future__ import annotations
+# Copyright 2020 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-import typing as t
-from urllib.parse import quote
+"""OAuth 2.0 Utilities.
 
-from .._internal import _plain_int
-from ..exceptions import SecurityError
-from ..urls import uri_to_iri
+This module provides implementations for various OAuth 2.0 utilities.
+This includes `OAuth error handling`_ and
+`Client authentication for OAuth flows`_.
+
+OAuth error handling
+--------------------
+This will define interfaces for handling OAuth related error responses as
+stated in `RFC 6749 section 5.2`_.
+This will include a common function to convert these HTTP error responses to a
+:class:`google.auth.exceptions.OAuthError` exception.
 
 
-def host_is_trusted(hostname: str | None, trusted_list: t.Iterable[str]) -> bool:
-    """Check if a host matches a list of trusted names.
+Client authentication for OAuth flows
+-------------------------------------
+We introduce an interface for defining client authentication credentials based
+on `RFC 6749 section 2.3.1`_. This will expose the following
+capabilities:
 
-    :param hostname: The name to check.
-    :param trusted_list: A list of valid names to match. If a name
-        starts with a dot it will match all subdomains.
+    * Ability to support basic authentication via request header.
+    * Ability to support bearer token authentication via request header.
+    * Ability to support client ID / secret authentication via request body.
 
-    .. versionadded:: 0.9
+.. _RFC 6749 section 2.3.1: https://tools.ietf.org/html/rfc6749#section-2.3.1
+.. _RFC 6749 section 5.2: https://tools.ietf.org/html/rfc6749#section-5.2
+"""
+
+import abc
+import base64
+import enum
+import json
+
+from google.auth import exceptions
+
+
+# OAuth client authentication based on
+# https://tools.ietf.org/html/rfc6749#section-2.3.
+class ClientAuthType(enum.Enum):
+    basic = 1
+    request_body = 2
+
+
+class ClientAuthentication(object):
+    """Defines the client authentication credentials for basic and request-body
+    types based on https://tools.ietf.org/html/rfc6749#section-2.3.1.
     """
-    if not hostname:
-        return False
 
+    def __init__(self, client_auth_type, client_id, client_secret=None):
+        """Instantiates a client authentication object containing the client ID
+        and secret credentials for basic and response-body auth.
+
+        Args:
+            client_auth_type (google.oauth2.oauth_utils.ClientAuthType): The
+                client authentication type.
+            client_id (str): The client ID.
+            client_secret (Optional[str]): The client secret.
+        """
+        self.client_auth_type = client_auth_type
+        self.client_id = client_id
+        self.client_secret = client_secret
+
+
+class OAuthClientAuthHandler(metaclass=abc.ABCMeta):
+    """Abstract class for handling client authentication in OAuth-based
+    operations.
+    """
+
+    def __init__(self, client_authentication=None):
+        """Instantiates an OAuth client authentication handler.
+
+        Args:
+            client_authentication (Optional[google.oauth2.utils.ClientAuthentication]):
+                The OAuth client authentication credentials if available.
+        """
+        super(OAuthClientAuthHandler, self).__init__()
+        self._client_authentication = client_authentication
+
+    def apply_client_authentication_options(
+        self, headers, request_body=None, bearer_token=None
+    ):
+        """Applies client authentication on the OAuth request's headers or POST
+        body.
+
+        Args:
+            headers (Mapping[str, str]): The HTTP request header.
+            request_body (Optional[Mapping[str, str]]): The HTTP request body
+                dictionary. For requests that do not support request body, this
+                is None and will be ignored.
+            bearer_token (Optional[str]): The optional bearer token.
+        """
+        # Inject authenticated header.
+        self._inject_authenticated_headers(headers, bearer_token)
+        # Inject authenticated request body.
+        if bearer_token is None:
+            self._inject_authenticated_request_body(request_body)
+
+    def _inject_authenticated_headers(self, headers, bearer_token=None):
+        if bearer_token is not None:
+            headers["Authorization"] = "Bearer %s" % bearer_token
+        elif (
+            self._client_authentication is not None
+            and self._client_authentication.client_auth_type is ClientAuthType.basic
+        ):
+            username = self._client_authentication.client_id
+            password = self._client_authentication.client_secret or ""
+
+            credentials = base64.b64encode(
+                ("%s:%s" % (username, password)).encode()
+            ).decode()
+            headers["Authorization"] = "Basic %s" % credentials
+
+    def _inject_authenticated_request_body(self, request_body):
+        if (
+            self._client_authentication is not None
+            and self._client_authentication.client_auth_type
+            is ClientAuthType.request_body
+        ):
+            if request_body is None:
+                raise exceptions.OAuthError(
+                    "HTTP request does not support request-body"
+                )
+            else:
+                request_body["client_id"] = self._client_authentication.client_id
+                request_body["client_secret"] = (
+                    self._client_authentication.client_secret or ""
+                )
+
+
+def handle_error_response(response_body):
+    """Translates an error response from an OAuth operation into an
+    OAuthError exception.
+
+    Args:
+        response_body (str): The decoded response data.
+
+    Raises:
+        google.auth.exceptions.OAuthError
+    """
     try:
-        hostname = hostname.partition(":")[0].encode("idna").decode("ascii")
-    except UnicodeEncodeError:
-        return False
+        error_components = []
+        error_data = json.loads(response_body)
 
-    if isinstance(trusted_list, str):
-        trusted_list = [trusted_list]
+        error_components.append("Error code {}".format(error_data["error"]))
+        if "error_description" in error_data:
+            error_components.append(": {}".format(error_data["error_description"]))
+        if "error_uri" in error_data:
+            error_components.append(" - {}".format(error_data["error_uri"]))
+        error_details = "".join(error_components)
+    # If no details could be extracted, use the response data.
+    except (KeyError, ValueError):
+        error_details = response_body
 
-    for ref in trusted_list:
-        if ref.startswith("."):
-            ref = ref[1:]
-            suffix_match = True
-        else:
-            suffix_match = False
-
-        try:
-            ref = ref.partition(":")[0].encode("idna").decode("ascii")
-        except UnicodeEncodeError:
-            return False
-
-        if ref == hostname or (suffix_match and hostname.endswith(f".{ref}")):
-            return True
-
-    return False
-
-
-def get_host(
-    scheme: str,
-    host_header: str | None,
-    server: tuple[str, int | None] | None = None,
-    trusted_hosts: t.Iterable[str] | None = None,
-) -> str:
-    """Return the host for the given parameters.
-
-    This first checks the ``host_header``. If it's not present, then
-    ``server`` is used. The host will only contain the port if it is
-    different than the standard port for the protocol.
-
-    Optionally, verify that the host is trusted using
-    :func:`host_is_trusted` and raise a
-    :exc:`~werkzeug.exceptions.SecurityError` if it is not.
-
-    :param scheme: The protocol the request used, like ``"https"``.
-    :param host_header: The ``Host`` header value.
-    :param server: Address of the server. ``(host, port)``, or
-        ``(path, None)`` for unix sockets.
-    :param trusted_hosts: A list of trusted host names.
-
-    :return: Host, with port if necessary.
-    :raise ~werkzeug.exceptions.SecurityError: If the host is not
-        trusted.
-
-    .. versionchanged:: 3.1.3
-        If ``SERVER_NAME`` is IPv6, it is wrapped in ``[]``.
-    """
-    host = ""
-
-    if host_header is not None:
-        host = host_header
-    elif server is not None:
-        host = server[0]
-
-        # If SERVER_NAME is IPv6, wrap it in [] to match Host header.
-        # Check for : because domain or IPv4 can't have that.
-        if ":" in host and host[0] != "[":
-            host = f"[{host}]"
-
-        if server[1] is not None:
-            host = f"{host}:{server[1]}"
-
-    if scheme in {"http", "ws"} and host.endswith(":80"):
-        host = host[:-3]
-    elif scheme in {"https", "wss"} and host.endswith(":443"):
-        host = host[:-4]
-
-    if trusted_hosts is not None:
-        if not host_is_trusted(host, trusted_hosts):
-            raise SecurityError(f"Host {host!r} is not trusted.")
-
-    return host
-
-
-def get_current_url(
-    scheme: str,
-    host: str,
-    root_path: str | None = None,
-    path: str | None = None,
-    query_string: bytes | None = None,
-) -> str:
-    """Recreate the URL for a request. If an optional part isn't
-    provided, it and subsequent parts are not included in the URL.
-
-    The URL is an IRI, not a URI, so it may contain Unicode characters.
-    Use :func:`~werkzeug.urls.iri_to_uri` to convert it to ASCII.
-
-    :param scheme: The protocol the request used, like ``"https"``.
-    :param host: The host the request was made to. See :func:`get_host`.
-    :param root_path: Prefix that the application is mounted under. This
-        is prepended to ``path``.
-    :param path: The path part of the URL after ``root_path``.
-    :param query_string: The portion of the URL after the "?".
-    """
-    url = [scheme, "://", host]
-
-    if root_path is None:
-        url.append("/")
-        return uri_to_iri("".join(url))
-
-    # safe = https://url.spec.whatwg.org/#url-path-segment-string
-    # as well as percent for things that are already quoted
-    url.append(quote(root_path.rstrip("/"), safe="!$&'()*+,/:;=@%"))
-    url.append("/")
-
-    if path is None:
-        return uri_to_iri("".join(url))
-
-    url.append(quote(path.lstrip("/"), safe="!$&'()*+,/:;=@%"))
-
-    if query_string:
-        url.append("?")
-        url.append(quote(query_string, safe="!$&'()*+,/:;=?@%"))
-
-    return uri_to_iri("".join(url))
-
-
-def get_content_length(
-    http_content_length: str | None = None,
-    http_transfer_encoding: str | None = None,
-) -> int | None:
-    """Return the ``Content-Length`` header value as an int. If the header is not given
-    or the ``Transfer-Encoding`` header is ``chunked``, ``None`` is returned to indicate
-    a streaming request. If the value is not an integer, or negative, 0 is returned.
-
-    :param http_content_length: The Content-Length HTTP header.
-    :param http_transfer_encoding: The Transfer-Encoding HTTP header.
-
-    .. versionadded:: 2.2
-    """
-    if http_transfer_encoding == "chunked" or http_content_length is None:
-        return None
-
-    try:
-        return max(0, _plain_int(http_content_length))
-    except ValueError:
-        return 0
+    raise exceptions.OAuthError(error_details, response_body)

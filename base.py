@@ -1,366 +1,127 @@
-# testing/fixtures/base.py
-# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors
-# <see AUTHORS file>
+# Copyright 2016 Google LLC
 #
-# This module is part of SQLAlchemy and is released under
-# the MIT License: https://www.opensource.org/licenses/mit-license.php
-# mypy: ignore-errors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Base classes for cryptographic signers and verifiers."""
+
+import abc
+import io
+import json
+
+from google.auth import exceptions
+
+_JSON_FILE_PRIVATE_KEY = "private_key"
+_JSON_FILE_PRIVATE_KEY_ID = "private_key_id"
 
 
-from __future__ import annotations
+class Verifier(metaclass=abc.ABCMeta):
+    """Abstract base class for crytographic signature verifiers."""
 
-import sqlalchemy as sa
-from .. import assertions
-from .. import config
-from ..assertions import eq_
-from ..util import drop_all_tables_from_metadata
-from ..util import picklers
-from ... import Column
-from ... import func
-from ... import Integer
-from ... import select
-from ... import Table
-from ...orm import DeclarativeBase
-from ...orm import MappedAsDataclass
-from ...orm import registry
+    @abc.abstractmethod
+    def verify(self, message, signature):
+        """Verifies a message against a cryptographic signature.
+
+        Args:
+            message (Union[str, bytes]): The message to verify.
+            signature (Union[str, bytes]): The cryptography signature to check.
+
+        Returns:
+            bool: True if message was signed by the private key associated
+            with the public key that this object was constructed with.
+        """
+        # pylint: disable=missing-raises-doc,redundant-returns-doc
+        # (pylint doesn't recognize that this is abstract)
+        raise NotImplementedError("Verify must be implemented")
 
 
-@config.mark_base_test_class()
-class TestBase:
-    # A sequence of requirement names matching testing.requires decorators
-    __requires__ = ()
+class Signer(metaclass=abc.ABCMeta):
+    """Abstract base class for cryptographic signers."""
 
-    # A sequence of dialect names to exclude from the test class.
-    __unsupported_on__ = ()
+    @abc.abstractproperty
+    def key_id(self):
+        """Optional[str]: The key ID used to identify this private key."""
+        raise NotImplementedError("Key id must be implemented")
 
-    # If present, test class is only runnable for the *single* specified
-    # dialect.  If you need multiple, use __unsupported_on__ and invert.
-    __only_on__ = None
+    @abc.abstractmethod
+    def sign(self, message):
+        """Signs a message.
 
-    # A sequence of no-arg callables. If any are True, the entire testcase is
-    # skipped.
-    __skip_if__ = None
+        Args:
+            message (Union[str, bytes]): The message to be signed.
 
-    # if True, the testing reaper will not attempt to touch connection
-    # state after a test is completed and before the outer teardown
-    # starts
-    __leave_connections_for_teardown__ = False
+        Returns:
+            bytes: The signature of the message.
+        """
+        # pylint: disable=missing-raises-doc,redundant-returns-doc
+        # (pylint doesn't recognize that this is abstract)
+        raise NotImplementedError("Sign must be implemented")
 
-    def assert_(self, val, msg=None):
-        assert val, msg
 
-    @config.fixture()
-    def nocache(self):
-        _cache = config.db._compiled_cache
-        config.db._compiled_cache = None
-        yield
-        config.db._compiled_cache = _cache
+class FromServiceAccountMixin(metaclass=abc.ABCMeta):
+    """Mix-in to enable factory constructors for a Signer."""
 
-    @config.fixture()
-    def connection_no_trans(self):
-        eng = getattr(self, "bind", None) or config.db
+    @abc.abstractmethod
+    def from_string(cls, key, key_id=None):
+        """Construct an Signer instance from a private key string.
 
-        with eng.connect() as conn:
-            yield conn
+        Args:
+            key (str): Private key as a string.
+            key_id (str): An optional key id used to identify the private key.
 
-    @config.fixture()
-    def connection(self):
-        global _connection_fixture_connection
+        Returns:
+            google.auth.crypt.Signer: The constructed signer.
 
-        eng = getattr(self, "bind", None) or config.db
+        Raises:
+            ValueError: If the key cannot be parsed.
+        """
+        raise NotImplementedError("from_string must be implemented")
 
-        conn = eng.connect()
-        trans = conn.begin()
+    @classmethod
+    def from_service_account_info(cls, info):
+        """Creates a Signer instance instance from a dictionary containing
+        service account info in Google format.
 
-        _connection_fixture_connection = conn
-        yield conn
+        Args:
+            info (Mapping[str, str]): The service account info in Google
+                format.
 
-        _connection_fixture_connection = None
+        Returns:
+            google.auth.crypt.Signer: The constructed signer.
 
-        if trans.is_active:
-            trans.rollback()
-        # trans would not be active here if the test is using
-        # the legacy @provide_metadata decorator still, as it will
-        # run a close all connections.
-        conn.close()
+        Raises:
+            ValueError: If the info is not in the expected format.
+        """
+        if _JSON_FILE_PRIVATE_KEY not in info:
+            raise exceptions.MalformedError(
+                "The private_key field was not found in the service account " "info."
+            )
 
-    @config.fixture()
-    def close_result_when_finished(self):
-        to_close = []
-        to_consume = []
-
-        def go(result, consume=False):
-            to_close.append(result)
-            if consume:
-                to_consume.append(result)
-
-        yield go
-        for r in to_consume:
-            try:
-                r.all()
-            except:
-                pass
-        for r in to_close:
-            try:
-                r.close()
-            except:
-                pass
-
-    @config.fixture()
-    def registry(self, metadata):
-        reg = registry(
-            metadata=metadata,
-            type_annotation_map={
-                str: sa.String().with_variant(
-                    sa.String(50), "mysql", "mariadb", "oracle"
-                )
-            },
+        return cls.from_string(
+            info[_JSON_FILE_PRIVATE_KEY], info.get(_JSON_FILE_PRIVATE_KEY_ID)
         )
-        yield reg
-        reg.dispose()
 
-    @config.fixture
-    def decl_base(self, metadata):
-        _md = metadata
+    @classmethod
+    def from_service_account_file(cls, filename):
+        """Creates a Signer instance from a service account .json file
+        in Google format.
 
-        class Base(DeclarativeBase):
-            metadata = _md
-            type_annotation_map = {
-                str: sa.String().with_variant(
-                    sa.String(50), "mysql", "mariadb", "oracle"
-                )
-            }
+        Args:
+            filename (str): The path to the service account .json file.
 
-        yield Base
-        Base.registry.dispose()
+        Returns:
+            google.auth.crypt.Signer: The constructed signer.
+        """
+        with io.open(filename, "r", encoding="utf-8") as json_file:
+            data = json.load(json_file)
 
-    @config.fixture
-    def dc_decl_base(self, metadata):
-        _md = metadata
-
-        class Base(MappedAsDataclass, DeclarativeBase):
-            metadata = _md
-            type_annotation_map = {
-                str: sa.String().with_variant(
-                    sa.String(50), "mysql", "mariadb"
-                )
-            }
-
-        yield Base
-        Base.registry.dispose()
-
-    @config.fixture()
-    def future_connection(self, future_engine, connection):
-        # integrate the future_engine and connection fixtures so
-        # that users of the "connection" fixture will get at the
-        # "future" connection
-        yield connection
-
-    @config.fixture()
-    def future_engine(self):
-        yield
-
-    @config.fixture()
-    def testing_engine(self):
-        from .. import engines
-
-        def gen_testing_engine(
-            url=None,
-            options=None,
-            asyncio=False,
-        ):
-            if options is None:
-                options = {}
-            options["scope"] = "fixture"
-            return engines.testing_engine(
-                url=url,
-                options=options,
-                asyncio=asyncio,
-            )
-
-        yield gen_testing_engine
-
-        engines.testing_reaper._drop_testing_engines("fixture")
-
-    @config.fixture()
-    def async_testing_engine(self, testing_engine):
-        def go(**kw):
-            kw["asyncio"] = True
-            return testing_engine(**kw)
-
-        return go
-
-    @config.fixture(params=picklers())
-    def picklers(self, request):
-        yield request.param
-
-    @config.fixture()
-    def metadata(self, request):
-        """Provide bound MetaData for a single test, dropping afterwards."""
-
-        from ...sql import schema
-
-        metadata = schema.MetaData()
-        request.instance.metadata = metadata
-        yield metadata
-        del request.instance.metadata
-
-        if (
-            _connection_fixture_connection
-            and _connection_fixture_connection.in_transaction()
-        ):
-            trans = _connection_fixture_connection.get_transaction()
-            trans.rollback()
-            with _connection_fixture_connection.begin():
-                drop_all_tables_from_metadata(
-                    metadata, _connection_fixture_connection
-                )
-        else:
-            drop_all_tables_from_metadata(metadata, config.db)
-
-    @config.fixture(
-        params=[
-            (rollback, second_operation, begin_nested)
-            for rollback in (True, False)
-            for second_operation in ("none", "execute", "begin")
-            for begin_nested in (
-                True,
-                False,
-            )
-        ]
-    )
-    def trans_ctx_manager_fixture(self, request, metadata):
-        rollback, second_operation, begin_nested = request.param
-
-        t = Table("test", metadata, Column("data", Integer))
-        eng = getattr(self, "bind", None) or config.db
-
-        t.create(eng)
-
-        def run_test(subject, trans_on_subject, execute_on_subject):
-            with subject.begin() as trans:
-                if begin_nested:
-                    if not config.requirements.savepoints.enabled:
-                        config.skip_test("savepoints not enabled")
-                    if execute_on_subject:
-                        nested_trans = subject.begin_nested()
-                    else:
-                        nested_trans = trans.begin_nested()
-
-                    with nested_trans:
-                        if execute_on_subject:
-                            subject.execute(t.insert(), {"data": 10})
-                        else:
-                            trans.execute(t.insert(), {"data": 10})
-
-                        # for nested trans, we always commit/rollback on the
-                        # "nested trans" object itself.
-                        # only Session(future=False) will affect savepoint
-                        # transaction for session.commit/rollback
-
-                        if rollback:
-                            nested_trans.rollback()
-                        else:
-                            nested_trans.commit()
-
-                        if second_operation != "none":
-                            with assertions.expect_raises_message(
-                                sa.exc.InvalidRequestError,
-                                "Can't operate on closed transaction "
-                                "inside context "
-                                "manager.  Please complete the context "
-                                "manager "
-                                "before emitting further commands.",
-                            ):
-                                if second_operation == "execute":
-                                    if execute_on_subject:
-                                        subject.execute(
-                                            t.insert(), {"data": 12}
-                                        )
-                                    else:
-                                        trans.execute(t.insert(), {"data": 12})
-                                elif second_operation == "begin":
-                                    if execute_on_subject:
-                                        subject.begin_nested()
-                                    else:
-                                        trans.begin_nested()
-
-                    # outside the nested trans block, but still inside the
-                    # transaction block, we can run SQL, and it will be
-                    # committed
-                    if execute_on_subject:
-                        subject.execute(t.insert(), {"data": 14})
-                    else:
-                        trans.execute(t.insert(), {"data": 14})
-
-                else:
-                    if execute_on_subject:
-                        subject.execute(t.insert(), {"data": 10})
-                    else:
-                        trans.execute(t.insert(), {"data": 10})
-
-                    if trans_on_subject:
-                        if rollback:
-                            subject.rollback()
-                        else:
-                            subject.commit()
-                    else:
-                        if rollback:
-                            trans.rollback()
-                        else:
-                            trans.commit()
-
-                    if second_operation != "none":
-                        with assertions.expect_raises_message(
-                            sa.exc.InvalidRequestError,
-                            "Can't operate on closed transaction inside "
-                            "context "
-                            "manager.  Please complete the context manager "
-                            "before emitting further commands.",
-                        ):
-                            if second_operation == "execute":
-                                if execute_on_subject:
-                                    subject.execute(t.insert(), {"data": 12})
-                                else:
-                                    trans.execute(t.insert(), {"data": 12})
-                            elif second_operation == "begin":
-                                if hasattr(trans, "begin"):
-                                    trans.begin()
-                                else:
-                                    subject.begin()
-                            elif second_operation == "begin_nested":
-                                if execute_on_subject:
-                                    subject.begin_nested()
-                                else:
-                                    trans.begin_nested()
-
-            expected_committed = 0
-            if begin_nested:
-                # begin_nested variant, we inserted a row after the nested
-                # block
-                expected_committed += 1
-            if not rollback:
-                # not rollback variant, our row inserted in the target
-                # block itself would be committed
-                expected_committed += 1
-
-            if execute_on_subject:
-                eq_(
-                    subject.scalar(select(func.count()).select_from(t)),
-                    expected_committed,
-                )
-            else:
-                with subject.connect() as conn:
-                    eq_(
-                        conn.scalar(select(func.count()).select_from(t)),
-                        expected_committed,
-                    )
-
-        return run_test
-
-
-_connection_fixture_connection = None
-
-
-class FutureEngineMixin:
-    """alembic's suite still using this"""
+        return cls.from_service_account_info(data)

@@ -1,385 +1,268 @@
-from __future__ import annotations
+# Copyright 2024 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-import collections.abc as c
-import hashlib
-import typing as t
-from collections.abc import MutableMapping
-from datetime import datetime
-from datetime import timezone
+import asyncio
+from contextlib import asynccontextmanager
+import functools
+import time
+from typing import Mapping, Optional
 
-from itsdangerous import BadSignature
-from itsdangerous import URLSafeTimedSerializer
-from werkzeug.datastructures import CallbackDict
+from google.auth import _exponential_backoff, exceptions
+from google.auth.aio import transport
+from google.auth.aio.credentials import Credentials
+from google.auth.exceptions import TimeoutError
 
-from .json.tag import TaggedJSONSerializer
+try:
+    from google.auth.aio.transport.aiohttp import Request as AiohttpRequest
 
-if t.TYPE_CHECKING:  # pragma: no cover
-    import typing_extensions as te
-
-    from .app import Flask
-    from .wrappers import Request
-    from .wrappers import Response
+    AIOHTTP_INSTALLED = True
+except ImportError:  # pragma: NO COVER
+    AIOHTTP_INSTALLED = False
 
 
-class SessionMixin(MutableMapping[str, t.Any]):
-    """Expands a basic dictionary with session attributes."""
-
-    @property
-    def permanent(self) -> bool:
-        """This reflects the ``'_permanent'`` key in the dict."""
-        return self.get("_permanent", False)  # type: ignore[no-any-return]
-
-    @permanent.setter
-    def permanent(self, value: bool) -> None:
-        self["_permanent"] = bool(value)
-
-    #: Some implementations can detect whether a session is newly
-    #: created, but that is not guaranteed. Use with caution. The mixin
-    # default is hard-coded ``False``.
-    new = False
-
-    #: Some implementations can detect changes to the session and set
-    #: this when that happens. The mixin default is hard coded to
-    #: ``True``.
-    modified = True
-
-    accessed = False
-    """Indicates if the session was accessed, even if it was not modified. This
-    is set when the session object is accessed through the request context,
-    including the global :data:`.session` proxy. A ``Vary: cookie`` header will
-    be added if this is ``True``.
-
-    .. versionchanged:: 3.1.3
-        This is tracked by the request context.
+@asynccontextmanager
+async def timeout_guard(timeout):
     """
+    timeout_guard is an asynchronous context manager to apply a timeout to an asynchronous block of code.
 
+    Args:
+        timeout (float): The time in seconds before the context manager times out.
 
-class SecureCookieSession(CallbackDict[str, t.Any], SessionMixin):
-    """Base class for sessions based on signed cookies.
+    Raises:
+        google.auth.exceptions.TimeoutError: If the code within the context exceeds the provided timeout.
 
-    This session backend will set the :attr:`modified` and
-    :attr:`accessed` attributes. It cannot reliably track whether a
-    session is new (vs. empty), so :attr:`new` remains hard coded to
-    ``False``.
+    Usage:
+        async with timeout_guard(10) as with_timeout:
+            await with_timeout(async_function())
     """
+    start = time.monotonic()
+    total_timeout = timeout
 
-    #: When data is changed, this is set to ``True``. Only the session
-    #: dictionary itself is tracked; if the session contains mutable
-    #: data (for example a nested dict) then this must be set to
-    #: ``True`` manually when modifying that data. The session cookie
-    #: will only be written to the response if this is ``True``.
-    modified = False
+    def _remaining_time():
+        elapsed = time.monotonic() - start
+        remaining = total_timeout - elapsed
+        if remaining <= 0:
+            raise TimeoutError(
+                f"Context manager exceeded the configured timeout of {total_timeout}s."
+            )
+        return remaining
+
+    async def with_timeout(coro):
+        try:
+            remaining = _remaining_time()
+            response = await asyncio.wait_for(coro, remaining)
+            return response
+        except (asyncio.TimeoutError, TimeoutError) as e:
+            raise TimeoutError(
+                f"The operation {coro} exceeded the configured timeout of {total_timeout}s."
+            ) from e
+
+    try:
+        yield with_timeout
+
+    finally:
+        _remaining_time()
+
+
+class AsyncAuthorizedSession:
+    """This is an asynchronous implementation of :class:`google.auth.requests.AuthorizedSession` class.
+    We utilize an instance of a class that implements :class:`google.auth.aio.transport.Request` configured
+    by the caller or otherwise default to `google.auth.aio.transport.aiohttp.Request` if the external aiohttp
+    package is installed.
+
+    A Requests Session class with credentials.
+
+    This class is used to perform asynchronous requests to API endpoints that require
+    authorization::
+
+        import aiohttp
+        from google.auth.aio.transport import sessions
+
+        async with sessions.AsyncAuthorizedSession(credentials) as authed_session:
+            response = await authed_session.request(
+                'GET', 'https://www.googleapis.com/storage/v1/b')
+
+    The underlying :meth:`request` implementation handles adding the
+    credentials' headers to the request and refreshing credentials as needed.
+
+    Args:
+        credentials (google.auth.aio.credentials.Credentials):
+            The credentials to add to the request.
+        auth_request (Optional[google.auth.aio.transport.Request]):
+            An instance of a class that implements
+            :class:`~google.auth.aio.transport.Request` used to make requests
+            and refresh credentials. If not passed,
+            an instance of :class:`~google.auth.aio.transport.aiohttp.Request`
+            is created.
+
+    Raises:
+        - google.auth.exceptions.TransportError: If `auth_request` is `None`
+            and the external package `aiohttp` is not installed.
+        - google.auth.exceptions.InvalidType: If the provided credentials are
+            not of type `google.auth.aio.credentials.Credentials`.
+    """
 
     def __init__(
+        self, credentials: Credentials, auth_request: Optional[transport.Request] = None
+    ):
+        if not isinstance(credentials, Credentials):
+            raise exceptions.InvalidType(
+                f"The configured credentials of type {type(credentials)} are invalid and must be of type `google.auth.aio.credentials.Credentials`"
+            )
+        self._credentials = credentials
+        _auth_request = auth_request
+        if not _auth_request and AIOHTTP_INSTALLED:
+            _auth_request = AiohttpRequest()
+        if _auth_request is None:
+            raise exceptions.TransportError(
+                "`auth_request` must either be configured or the external package `aiohttp` must be installed to use the default value."
+            )
+        self._auth_request = _auth_request
+
+    async def request(
         self,
-        initial: c.Mapping[str, t.Any] | None = None,
-    ) -> None:
-        def on_update(self: te.Self) -> None:
-            self.modified = True
+        method: str,
+        url: str,
+        data: Optional[bytes] = None,
+        headers: Optional[Mapping[str, str]] = None,
+        max_allowed_time: float = transport._DEFAULT_TIMEOUT_SECONDS,
+        timeout: float = transport._DEFAULT_TIMEOUT_SECONDS,
+        **kwargs,
+    ) -> transport.Response:
+        """
+        Args:
+                method (str): The http method used to make the request.
+                url (str): The URI to be requested.
+                data (Optional[bytes]): The payload or body in HTTP request.
+                headers (Optional[Mapping[str, str]]): Request headers.
+                timeout (float):
+                The amount of time in seconds to wait for the server response
+                with each individual request.
+                max_allowed_time (float):
+                If the method runs longer than this, a ``Timeout`` exception is
+                automatically raised. Unlike the ``timeout`` parameter, this
+                value applies to the total method execution time, even if
+                multiple requests are made under the hood.
 
-        super().__init__(initial, on_update)
+                Mind that it is not guaranteed that the timeout error is raised
+                at ``max_allowed_time``. It might take longer, for example, if
+                an underlying request takes a lot of time, but the request
+                itself does not timeout, e.g. if a large file is being
+                transmitted. The timeout error will be raised after such
+                request completes.
 
+        Returns:
+                google.auth.aio.transport.Response: The HTTP response.
 
-class NullSession(SecureCookieSession):
-    """Class used to generate nicer error messages if sessions are not
-    available.  Will still allow read-only access to the empty session
-    but fail on setting.
-    """
+        Raises:
+                google.auth.exceptions.TimeoutError: If the method does not complete within
+                the configured `max_allowed_time` or the request exceeds the configured
+                `timeout`.
+        """
 
-    def _fail(self, *args: t.Any, **kwargs: t.Any) -> t.NoReturn:
-        raise RuntimeError(
-            "The session is unavailable because no secret "
-            "key was set.  Set the secret_key on the "
-            "application to something unique and secret."
+        retries = _exponential_backoff.AsyncExponentialBackoff(
+            total_attempts=transport.DEFAULT_MAX_RETRY_ATTEMPTS
         )
-
-    __setitem__ = __delitem__ = clear = pop = popitem = update = setdefault = _fail
-    del _fail
-
-
-class SessionInterface:
-    """The basic interface you have to implement in order to replace the
-    default session interface which uses werkzeug's securecookie
-    implementation.  The only methods you have to implement are
-    :meth:`open_session` and :meth:`save_session`, the others have
-    useful defaults which you don't need to change.
-
-    The session object returned by the :meth:`open_session` method has to
-    provide a dictionary like interface plus the properties and methods
-    from the :class:`SessionMixin`.  We recommend just subclassing a dict
-    and adding that mixin::
-
-        class Session(dict, SessionMixin):
-            pass
-
-    If :meth:`open_session` returns ``None`` Flask will call into
-    :meth:`make_null_session` to create a session that acts as replacement
-    if the session support cannot work because some requirement is not
-    fulfilled.  The default :class:`NullSession` class that is created
-    will complain that the secret key was not set.
-
-    To replace the session interface on an application all you have to do
-    is to assign :attr:`flask.Flask.session_interface`::
-
-        app = Flask(__name__)
-        app.session_interface = MySessionInterface()
-
-    Multiple requests with the same session may be sent and handled
-    concurrently. When implementing a new session interface, consider
-    whether reads or writes to the backing store must be synchronized.
-    There is no guarantee on the order in which the session for each
-    request is opened or saved, it will occur in the order that requests
-    begin and end processing.
-
-    .. versionadded:: 0.8
-    """
-
-    #: :meth:`make_null_session` will look here for the class that should
-    #: be created when a null session is requested.  Likewise the
-    #: :meth:`is_null_session` method will perform a typecheck against
-    #: this type.
-    null_session_class = NullSession
-
-    #: A flag that indicates if the session interface is pickle based.
-    #: This can be used by Flask extensions to make a decision in regards
-    #: to how to deal with the session object.
-    #:
-    #: .. versionadded:: 0.10
-    pickle_based = False
-
-    def make_null_session(self, app: Flask) -> NullSession:
-        """Creates a null session which acts as a replacement object if the
-        real session support could not be loaded due to a configuration
-        error.  This mainly aids the user experience because the job of the
-        null session is to still support lookup without complaining but
-        modifications are answered with a helpful error message of what
-        failed.
-
-        This creates an instance of :attr:`null_session_class` by default.
-        """
-        return self.null_session_class()
-
-    def is_null_session(self, obj: object) -> bool:
-        """Checks if a given object is a null session.  Null sessions are
-        not asked to be saved.
-
-        This checks if the object is an instance of :attr:`null_session_class`
-        by default.
-        """
-        return isinstance(obj, self.null_session_class)
-
-    def get_cookie_name(self, app: Flask) -> str:
-        """The name of the session cookie. Uses``app.config["SESSION_COOKIE_NAME"]``."""
-        return app.config["SESSION_COOKIE_NAME"]  # type: ignore[no-any-return]
-
-    def get_cookie_domain(self, app: Flask) -> str | None:
-        """The value of the ``Domain`` parameter on the session cookie. If not set,
-        browsers will only send the cookie to the exact domain it was set from.
-        Otherwise, they will send it to any subdomain of the given value as well.
-
-        Uses the :data:`SESSION_COOKIE_DOMAIN` config.
-
-        .. versionchanged:: 2.3
-            Not set by default, does not fall back to ``SERVER_NAME``.
-        """
-        return app.config["SESSION_COOKIE_DOMAIN"]  # type: ignore[no-any-return]
-
-    def get_cookie_path(self, app: Flask) -> str:
-        """Returns the path for which the cookie should be valid.  The
-        default implementation uses the value from the ``SESSION_COOKIE_PATH``
-        config var if it's set, and falls back to ``APPLICATION_ROOT`` or
-        uses ``/`` if it's ``None``.
-        """
-        return app.config["SESSION_COOKIE_PATH"] or app.config["APPLICATION_ROOT"]  # type: ignore[no-any-return]
-
-    def get_cookie_httponly(self, app: Flask) -> bool:
-        """Returns True if the session cookie should be httponly.  This
-        currently just returns the value of the ``SESSION_COOKIE_HTTPONLY``
-        config var.
-        """
-        return app.config["SESSION_COOKIE_HTTPONLY"]  # type: ignore[no-any-return]
-
-    def get_cookie_secure(self, app: Flask) -> bool:
-        """Returns True if the cookie should be secure.  This currently
-        just returns the value of the ``SESSION_COOKIE_SECURE`` setting.
-        """
-        return app.config["SESSION_COOKIE_SECURE"]  # type: ignore[no-any-return]
-
-    def get_cookie_samesite(self, app: Flask) -> str | None:
-        """Return ``'Strict'`` or ``'Lax'`` if the cookie should use the
-        ``SameSite`` attribute. This currently just returns the value of
-        the :data:`SESSION_COOKIE_SAMESITE` setting.
-        """
-        return app.config["SESSION_COOKIE_SAMESITE"]  # type: ignore[no-any-return]
-
-    def get_cookie_partitioned(self, app: Flask) -> bool:
-        """Returns True if the cookie should be partitioned. By default, uses
-        the value of :data:`SESSION_COOKIE_PARTITIONED`.
-
-        .. versionadded:: 3.1
-        """
-        return app.config["SESSION_COOKIE_PARTITIONED"]  # type: ignore[no-any-return]
-
-    def get_expiration_time(self, app: Flask, session: SessionMixin) -> datetime | None:
-        """A helper method that returns an expiration date for the session
-        or ``None`` if the session is linked to the browser session.  The
-        default implementation returns now + the permanent session
-        lifetime configured on the application.
-        """
-        if session.permanent:
-            return datetime.now(timezone.utc) + app.permanent_session_lifetime
-        return None
-
-    def should_set_cookie(self, app: Flask, session: SessionMixin) -> bool:
-        """Used by session backends to determine if a ``Set-Cookie`` header
-        should be set for this session cookie for this response. If the session
-        has been modified, the cookie is set. If the session is permanent and
-        the ``SESSION_REFRESH_EACH_REQUEST`` config is true, the cookie is
-        always set.
-
-        This check is usually skipped if the session was deleted.
-
-        .. versionadded:: 0.11
-        """
-
-        return session.modified or (
-            session.permanent and app.config["SESSION_REFRESH_EACH_REQUEST"]
-        )
-
-    def open_session(self, app: Flask, request: Request) -> SessionMixin | None:
-        """This is called at the beginning of each request, after
-        pushing the request context, before matching the URL.
-
-        This must return an object which implements a dictionary-like
-        interface as well as the :class:`SessionMixin` interface.
-
-        This will return ``None`` to indicate that loading failed in
-        some way that is not immediately an error. The request
-        context will fall back to using :meth:`make_null_session`
-        in this case.
-        """
-        raise NotImplementedError()
-
-    def save_session(
-        self, app: Flask, session: SessionMixin, response: Response
-    ) -> None:
-        """This is called at the end of each request, after generating
-        a response, before removing the request context. It is skipped
-        if :meth:`is_null_session` returns ``True``.
-        """
-        raise NotImplementedError()
-
-
-session_json_serializer = TaggedJSONSerializer()
-
-
-def _lazy_sha1(string: bytes = b"") -> t.Any:
-    """Don't access ``hashlib.sha1`` until runtime. FIPS builds may not include
-    SHA-1, in which case the import and use as a default would fail before the
-    developer can configure something else.
-    """
-    return hashlib.sha1(string)
-
-
-class SecureCookieSessionInterface(SessionInterface):
-    """The default session interface that stores sessions in signed cookies
-    through the :mod:`itsdangerous` module.
-    """
-
-    #: the salt that should be applied on top of the secret key for the
-    #: signing of cookie based sessions.
-    salt = "cookie-session"
-    #: the hash function to use for the signature.  The default is sha1
-    digest_method = staticmethod(_lazy_sha1)
-    #: the name of the itsdangerous supported key derivation.  The default
-    #: is hmac.
-    key_derivation = "hmac"
-    #: A python serializer for the payload.  The default is a compact
-    #: JSON derived serializer with support for some extra Python types
-    #: such as datetime objects or tuples.
-    serializer = session_json_serializer
-    session_class = SecureCookieSession
-
-    def get_signing_serializer(self, app: Flask) -> URLSafeTimedSerializer | None:
-        if not app.secret_key:
-            return None
-
-        keys: list[str | bytes] = []
-
-        if fallbacks := app.config["SECRET_KEY_FALLBACKS"]:
-            keys.extend(fallbacks)
-
-        keys.append(app.secret_key)  # itsdangerous expects current key at top
-        return URLSafeTimedSerializer(
-            keys,  # type: ignore[arg-type]
-            salt=self.salt,
-            serializer=self.serializer,
-            signer_kwargs={
-                "key_derivation": self.key_derivation,
-                "digest_method": self.digest_method,
-            },
-        )
-
-    def open_session(self, app: Flask, request: Request) -> SecureCookieSession | None:
-        s = self.get_signing_serializer(app)
-        if s is None:
-            return None
-        val = request.cookies.get(self.get_cookie_name(app))
-        if not val:
-            return self.session_class()
-        max_age = int(app.permanent_session_lifetime.total_seconds())
-        try:
-            data = s.loads(val, max_age=max_age)
-            return self.session_class(data)
-        except BadSignature:
-            return self.session_class()
-
-    def save_session(
-        self, app: Flask, session: SessionMixin, response: Response
-    ) -> None:
-        name = self.get_cookie_name(app)
-        domain = self.get_cookie_domain(app)
-        path = self.get_cookie_path(app)
-        secure = self.get_cookie_secure(app)
-        partitioned = self.get_cookie_partitioned(app)
-        samesite = self.get_cookie_samesite(app)
-        httponly = self.get_cookie_httponly(app)
-
-        # Add a "Vary: Cookie" header if the session was accessed at all.
-        if session.accessed:
-            response.vary.add("Cookie")
-
-        # If the session is modified to be empty, remove the cookie.
-        # If the session is empty, return without setting the cookie.
-        if not session:
-            if session.modified:
-                response.delete_cookie(
-                    name,
-                    domain=domain,
-                    path=path,
-                    secure=secure,
-                    partitioned=partitioned,
-                    samesite=samesite,
-                    httponly=httponly,
+        async with timeout_guard(max_allowed_time) as with_timeout:
+            await with_timeout(
+                # Note: before_request will attempt to refresh credentials if expired.
+                self._credentials.before_request(
+                    self._auth_request, method, url, headers
                 )
-                response.vary.add("Cookie")
+            )
+            # Workaround issue in python 3.9 related to code coverage by adding `# pragma: no branch`
+            # See https://github.com/googleapis/gapic-generator-python/pull/1174#issuecomment-1025132372
+            async for _ in retries:  # pragma: no branch
+                response = await with_timeout(
+                    self._auth_request(url, method, data, headers, timeout, **kwargs)
+                )
+                if response.status_code not in transport.DEFAULT_RETRYABLE_STATUS_CODES:
+                    break
+        return response
 
-            return
-
-        if not self.should_set_cookie(app, session):
-            return
-
-        expires = self.get_expiration_time(app, session)
-        val = self.get_signing_serializer(app).dumps(dict(session))  # type: ignore[union-attr]
-        response.set_cookie(
-            name,
-            val,
-            expires=expires,
-            httponly=httponly,
-            domain=domain,
-            path=path,
-            secure=secure,
-            partitioned=partitioned,
-            samesite=samesite,
+    @functools.wraps(request)
+    async def get(
+        self,
+        url: str,
+        data: Optional[bytes] = None,
+        headers: Optional[Mapping[str, str]] = None,
+        max_allowed_time: float = transport._DEFAULT_TIMEOUT_SECONDS,
+        timeout: float = transport._DEFAULT_TIMEOUT_SECONDS,
+        **kwargs,
+    ) -> transport.Response:
+        return await self.request(
+            "GET", url, data, headers, max_allowed_time, timeout, **kwargs
         )
-        response.vary.add("Cookie")
+
+    @functools.wraps(request)
+    async def post(
+        self,
+        url: str,
+        data: Optional[bytes] = None,
+        headers: Optional[Mapping[str, str]] = None,
+        max_allowed_time: float = transport._DEFAULT_TIMEOUT_SECONDS,
+        timeout: float = transport._DEFAULT_TIMEOUT_SECONDS,
+        **kwargs,
+    ) -> transport.Response:
+        return await self.request(
+            "POST", url, data, headers, max_allowed_time, timeout, **kwargs
+        )
+
+    @functools.wraps(request)
+    async def put(
+        self,
+        url: str,
+        data: Optional[bytes] = None,
+        headers: Optional[Mapping[str, str]] = None,
+        max_allowed_time: float = transport._DEFAULT_TIMEOUT_SECONDS,
+        timeout: float = transport._DEFAULT_TIMEOUT_SECONDS,
+        **kwargs,
+    ) -> transport.Response:
+        return await self.request(
+            "PUT", url, data, headers, max_allowed_time, timeout, **kwargs
+        )
+
+    @functools.wraps(request)
+    async def patch(
+        self,
+        url: str,
+        data: Optional[bytes] = None,
+        headers: Optional[Mapping[str, str]] = None,
+        max_allowed_time: float = transport._DEFAULT_TIMEOUT_SECONDS,
+        timeout: float = transport._DEFAULT_TIMEOUT_SECONDS,
+        **kwargs,
+    ) -> transport.Response:
+        return await self.request(
+            "PATCH", url, data, headers, max_allowed_time, timeout, **kwargs
+        )
+
+    @functools.wraps(request)
+    async def delete(
+        self,
+        url: str,
+        data: Optional[bytes] = None,
+        headers: Optional[Mapping[str, str]] = None,
+        max_allowed_time: float = transport._DEFAULT_TIMEOUT_SECONDS,
+        timeout: float = transport._DEFAULT_TIMEOUT_SECONDS,
+        **kwargs,
+    ) -> transport.Response:
+        return await self.request(
+            "DELETE", url, data, headers, max_allowed_time, timeout, **kwargs
+        )
+
+    async def close(self) -> None:
+        """
+        Close the underlying auth request session.
+        """
+        await self._auth_request.close()
