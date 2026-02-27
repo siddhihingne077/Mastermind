@@ -1,3 +1,2 @@
 [console_scripts]
-flask=flask.cli:main
-
+google-oauthlib-tool = google_auth_oauthlib.tool.__main__:main [tool]

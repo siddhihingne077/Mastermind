@@ -1,31 +1,48 @@
+# All exceptions raised here derive from HttpLib2Error
+class HttpLib2Error(Exception):
+    pass
 
-class FFIError(Exception):
-    __module__ = 'cffi'
 
-class CDefError(Exception):
-    __module__ = 'cffi'
-    def __str__(self):
-        try:
-            current_decl = self.args[1]
-            filename = current_decl.coord.file
-            linenum = current_decl.coord.line
-            prefix = '%s:%d: ' % (filename, linenum)
-        except (AttributeError, TypeError, IndexError):
-            prefix = ''
-        return '%s%s' % (prefix, self.args[0])
+# Some exceptions can be caught and optionally
+# be turned back into responses.
+class HttpLib2ErrorWithResponse(HttpLib2Error):
+    def __init__(self, desc, response, content):
+        self.response = response
+        self.content = content
+        HttpLib2Error.__init__(self, desc)
 
-class VerificationError(Exception):
-    """ An error raised when verification fails
-    """
-    __module__ = 'cffi'
 
-class VerificationMissing(Exception):
-    """ An error raised when incomplete structures are passed into
-    cdef, but no verification has been done
-    """
-    __module__ = 'cffi'
+class RedirectMissingLocation(HttpLib2ErrorWithResponse):
+    pass
 
-class PkgConfigError(Exception):
-    """ An error raised for missing modules in pkg-config
-    """
-    __module__ = 'cffi'
+
+class RedirectLimit(HttpLib2ErrorWithResponse):
+    pass
+
+
+class FailedToDecompressContent(HttpLib2ErrorWithResponse):
+    pass
+
+
+class UnimplementedDigestAuthOptionError(HttpLib2ErrorWithResponse):
+    pass
+
+
+class UnimplementedHmacDigestAuthOptionError(HttpLib2ErrorWithResponse):
+    pass
+
+
+class MalformedHeader(HttpLib2Error):
+    pass
+
+
+class RelativeURIError(HttpLib2Error):
+    pass
+
+
+class ServerNotFoundError(HttpLib2Error):
+    pass
+
+
+class ProxiesUnavailableError(HttpLib2Error):
+    pass
