@@ -1,138 +1,167 @@
-# This file is dual licensed under the terms of the Apache License, Version
-# 2.0, and the BSD License. See the LICENSE file in the root of this repository
-# for complete details.
-
 from __future__ import annotations
 
-import enum
-import sys
-import types
-import typing
-import warnings
-from collections.abc import Callable, Sequence
+import typing as t
+from urllib.parse import quote
+
+from .._internal import _plain_int
+from ..exceptions import SecurityError
+from ..urls import uri_to_iri
 
 
-# We use a UserWarning subclass, instead of DeprecationWarning, because CPython
-# decided deprecation warnings should be invisible by default.
-class CryptographyDeprecationWarning(UserWarning):
-    pass
+def host_is_trusted(hostname: str | None, trusted_list: t.Iterable[str]) -> bool:
+    """Check if a host matches a list of trusted names.
 
+    :param hostname: The name to check.
+    :param trusted_list: A list of valid names to match. If a name
+        starts with a dot it will match all subdomains.
 
-# Several APIs were deprecated with no specific end-of-life date because of the
-# ubiquity of their use. They should not be removed until we agree on when that
-# cycle ends.
-DeprecatedIn36 = CryptographyDeprecationWarning
-DeprecatedIn40 = CryptographyDeprecationWarning
-DeprecatedIn41 = CryptographyDeprecationWarning
-DeprecatedIn42 = CryptographyDeprecationWarning
-DeprecatedIn43 = CryptographyDeprecationWarning
-DeprecatedIn46 = CryptographyDeprecationWarning
+    .. versionadded:: 0.9
+    """
+    if not hostname:
+        return False
 
-
-# If you're wondering why we don't use `Buffer`, it's because `Buffer` would
-# be more accurately named: Bufferable. It means something which has an
-# `__buffer__`. Which means you can't actually treat the result as a buffer
-# (and do things like take a `len()`).
-if sys.version_info >= (3, 9):
-    Buffer = typing.Union[bytes, bytearray, memoryview]
-else:
-    Buffer = typing.ByteString
-
-
-def _check_bytes(name: str, value: bytes) -> None:
-    if not isinstance(value, bytes):
-        raise TypeError(f"{name} must be bytes")
-
-
-def _check_byteslike(name: str, value: Buffer) -> None:
     try:
-        memoryview(value)
-    except TypeError:
-        raise TypeError(f"{name} must be bytes-like")
+        hostname = hostname.partition(":")[0].encode("idna").decode("ascii")
+    except UnicodeEncodeError:
+        return False
+
+    if isinstance(trusted_list, str):
+        trusted_list = [trusted_list]
+
+    for ref in trusted_list:
+        if ref.startswith("."):
+            ref = ref[1:]
+            suffix_match = True
+        else:
+            suffix_match = False
+
+        try:
+            ref = ref.partition(":")[0].encode("idna").decode("ascii")
+        except UnicodeEncodeError:
+            return False
+
+        if ref == hostname or (suffix_match and hostname.endswith(f".{ref}")):
+            return True
+
+    return False
 
 
-def int_to_bytes(integer: int, length: int | None = None) -> bytes:
-    if length == 0:
-        raise ValueError("length argument can't be 0")
-    return integer.to_bytes(
-        length or (integer.bit_length() + 7) // 8 or 1, "big"
-    )
+def get_host(
+    scheme: str,
+    host_header: str | None,
+    server: tuple[str, int | None] | None = None,
+    trusted_hosts: t.Iterable[str] | None = None,
+) -> str:
+    """Return the host for the given parameters.
+
+    This first checks the ``host_header``. If it's not present, then
+    ``server`` is used. The host will only contain the port if it is
+    different than the standard port for the protocol.
+
+    Optionally, verify that the host is trusted using
+    :func:`host_is_trusted` and raise a
+    :exc:`~werkzeug.exceptions.SecurityError` if it is not.
+
+    :param scheme: The protocol the request used, like ``"https"``.
+    :param host_header: The ``Host`` header value.
+    :param server: Address of the server. ``(host, port)``, or
+        ``(path, None)`` for unix sockets.
+    :param trusted_hosts: A list of trusted host names.
+
+    :return: Host, with port if necessary.
+    :raise ~werkzeug.exceptions.SecurityError: If the host is not
+        trusted.
+
+    .. versionchanged:: 3.1.3
+        If ``SERVER_NAME`` is IPv6, it is wrapped in ``[]``.
+    """
+    host = ""
+
+    if host_header is not None:
+        host = host_header
+    elif server is not None:
+        host = server[0]
+
+        # If SERVER_NAME is IPv6, wrap it in [] to match Host header.
+        # Check for : because domain or IPv4 can't have that.
+        if ":" in host and host[0] != "[":
+            host = f"[{host}]"
+
+        if server[1] is not None:
+            host = f"{host}:{server[1]}"
+
+    if scheme in {"http", "ws"} and host.endswith(":80"):
+        host = host[:-3]
+    elif scheme in {"https", "wss"} and host.endswith(":443"):
+        host = host[:-4]
+
+    if trusted_hosts is not None:
+        if not host_is_trusted(host, trusted_hosts):
+            raise SecurityError(f"Host {host!r} is not trusted.")
+
+    return host
 
 
-class InterfaceNotImplemented(Exception):
-    pass
+def get_current_url(
+    scheme: str,
+    host: str,
+    root_path: str | None = None,
+    path: str | None = None,
+    query_string: bytes | None = None,
+) -> str:
+    """Recreate the URL for a request. If an optional part isn't
+    provided, it and subsequent parts are not included in the URL.
+
+    The URL is an IRI, not a URI, so it may contain Unicode characters.
+    Use :func:`~werkzeug.urls.iri_to_uri` to convert it to ASCII.
+
+    :param scheme: The protocol the request used, like ``"https"``.
+    :param host: The host the request was made to. See :func:`get_host`.
+    :param root_path: Prefix that the application is mounted under. This
+        is prepended to ``path``.
+    :param path: The path part of the URL after ``root_path``.
+    :param query_string: The portion of the URL after the "?".
+    """
+    url = [scheme, "://", host]
+
+    if root_path is None:
+        url.append("/")
+        return uri_to_iri("".join(url))
+
+    # safe = https://url.spec.whatwg.org/#url-path-segment-string
+    # as well as percent for things that are already quoted
+    url.append(quote(root_path.rstrip("/"), safe="!$&'()*+,/:;=@%"))
+    url.append("/")
+
+    if path is None:
+        return uri_to_iri("".join(url))
+
+    url.append(quote(path.lstrip("/"), safe="!$&'()*+,/:;=@%"))
+
+    if query_string:
+        url.append("?")
+        url.append(quote(query_string, safe="!$&'()*+,/:;=?@%"))
+
+    return uri_to_iri("".join(url))
 
 
-class _DeprecatedValue:
-    def __init__(self, value: object, message: str, warning_class):
-        self.value = value
-        self.message = message
-        self.warning_class = warning_class
+def get_content_length(
+    http_content_length: str | None = None,
+    http_transfer_encoding: str | None = None,
+) -> int | None:
+    """Return the ``Content-Length`` header value as an int. If the header is not given
+    or the ``Transfer-Encoding`` header is ``chunked``, ``None`` is returned to indicate
+    a streaming request. If the value is not an integer, or negative, 0 is returned.
 
+    :param http_content_length: The Content-Length HTTP header.
+    :param http_transfer_encoding: The Transfer-Encoding HTTP header.
 
-class _ModuleWithDeprecations(types.ModuleType):
-    def __init__(self, module: types.ModuleType):
-        super().__init__(module.__name__)
-        self.__dict__["_module"] = module
+    .. versionadded:: 2.2
+    """
+    if http_transfer_encoding == "chunked" or http_content_length is None:
+        return None
 
-    def __getattr__(self, attr: str) -> object:
-        obj = getattr(self._module, attr)
-        if isinstance(obj, _DeprecatedValue):
-            warnings.warn(obj.message, obj.warning_class, stacklevel=2)
-            obj = obj.value
-        return obj
-
-    def __setattr__(self, attr: str, value: object) -> None:
-        setattr(self._module, attr, value)
-
-    def __delattr__(self, attr: str) -> None:
-        obj = getattr(self._module, attr)
-        if isinstance(obj, _DeprecatedValue):
-            warnings.warn(obj.message, obj.warning_class, stacklevel=2)
-
-        delattr(self._module, attr)
-
-    def __dir__(self) -> Sequence[str]:
-        return ["_module", *dir(self._module)]
-
-
-def deprecated(
-    value: object,
-    module_name: str,
-    message: str,
-    warning_class: type[Warning],
-    name: str | None = None,
-) -> _DeprecatedValue:
-    module = sys.modules[module_name]
-    if not isinstance(module, _ModuleWithDeprecations):
-        sys.modules[module_name] = module = _ModuleWithDeprecations(module)
-    dv = _DeprecatedValue(value, message, warning_class)
-    # Maintain backwards compatibility with `name is None` for pyOpenSSL.
-    if name is not None:
-        setattr(module, name, dv)
-    return dv
-
-
-def cached_property(func: Callable) -> property:
-    cached_name = f"_cached_{func}"
-    sentinel = object()
-
-    def inner(instance: object):
-        cache = getattr(instance, cached_name, sentinel)
-        if cache is not sentinel:
-            return cache
-        result = func(instance)
-        setattr(instance, cached_name, result)
-        return result
-
-    return property(inner)
-
-
-# Python 3.10 changed representation of enums. We use well-defined object
-# representation and string representation from Python 3.9.
-class Enum(enum.Enum):
-    def __repr__(self) -> str:
-        return f"<{self.__class__.__name__}.{self._name_}: {self._value_!r}>"
-
-    def __str__(self) -> str:
-        return f"{self.__class__.__name__}.{self._name_}"
+    try:
+        return max(0, _plain_int(http_content_length))
+    except ValueError:
+        return 0

@@ -1,139 +1,109 @@
 Metadata-Version: 2.4
-Name: cryptography
-Version: 46.0.5
+Name: Werkzeug
+Version: 3.1.6
+Summary: The comprehensive WSGI web application library.
+Maintainer-email: Pallets <contact@palletsprojects.com>
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+License-Expression: BSD-3-Clause
 Classifier: Development Status :: 5 - Production/Stable
+Classifier: Environment :: Web Environment
 Classifier: Intended Audience :: Developers
-Classifier: Natural Language :: English
-Classifier: Operating System :: MacOS :: MacOS X
-Classifier: Operating System :: POSIX
-Classifier: Operating System :: POSIX :: BSD
-Classifier: Operating System :: POSIX :: Linux
-Classifier: Operating System :: Microsoft :: Windows
+Classifier: Operating System :: OS Independent
 Classifier: Programming Language :: Python
-Classifier: Programming Language :: Python :: 3
-Classifier: Programming Language :: Python :: 3 :: Only
-Classifier: Programming Language :: Python :: 3.8
-Classifier: Programming Language :: Python :: 3.9
-Classifier: Programming Language :: Python :: 3.10
-Classifier: Programming Language :: Python :: 3.11
-Classifier: Programming Language :: Python :: 3.12
-Classifier: Programming Language :: Python :: 3.13
-Classifier: Programming Language :: Python :: 3.14
-Classifier: Programming Language :: Python :: Implementation :: CPython
-Classifier: Programming Language :: Python :: Implementation :: PyPy
-Classifier: Programming Language :: Python :: Free Threading :: 3 - Stable
-Classifier: Topic :: Security :: Cryptography
-Requires-Dist: cffi>=1.14 ; python_full_version == '3.8.*' and platform_python_implementation != 'PyPy'
-Requires-Dist: cffi>=2.0.0 ; python_full_version >= '3.9' and platform_python_implementation != 'PyPy'
-Requires-Dist: typing-extensions>=4.13.2 ; python_full_version < '3.11'
-Requires-Dist: bcrypt>=3.1.5 ; extra == 'ssh'
-Requires-Dist: nox[uv]>=2024.4.15 ; extra == 'nox'
-Requires-Dist: cryptography-vectors==46.0.5 ; extra == 'test'
-Requires-Dist: pytest>=7.4.0 ; extra == 'test'
-Requires-Dist: pytest-benchmark>=4.0 ; extra == 'test'
-Requires-Dist: pytest-cov>=2.10.1 ; extra == 'test'
-Requires-Dist: pytest-xdist>=3.5.0 ; extra == 'test'
-Requires-Dist: pretend>=0.7 ; extra == 'test'
-Requires-Dist: certifi>=2024 ; extra == 'test'
-Requires-Dist: pytest-randomly ; extra == 'test-randomorder'
-Requires-Dist: sphinx>=5.3.0 ; extra == 'docs'
-Requires-Dist: sphinx-rtd-theme>=3.0.0 ; extra == 'docs'
-Requires-Dist: sphinx-inline-tabs ; extra == 'docs'
-Requires-Dist: pyenchant>=3 ; extra == 'docstest'
-Requires-Dist: readme-renderer>=30.0 ; extra == 'docstest'
-Requires-Dist: sphinxcontrib-spelling>=7.3.1 ; extra == 'docstest'
-Requires-Dist: build>=1.0.0 ; extra == 'sdist'
-Requires-Dist: ruff>=0.11.11 ; extra == 'pep8test'
-Requires-Dist: mypy>=1.14 ; extra == 'pep8test'
-Requires-Dist: check-sdist ; extra == 'pep8test'
-Requires-Dist: click>=8.0.1 ; extra == 'pep8test'
-Provides-Extra: ssh
-Provides-Extra: nox
-Provides-Extra: test
-Provides-Extra: test-randomorder
-Provides-Extra: docs
-Provides-Extra: docstest
-Provides-Extra: sdist
-Provides-Extra: pep8test
-License-File: LICENSE
-License-File: LICENSE.APACHE
-License-File: LICENSE.BSD
-Summary: cryptography is a package which provides cryptographic recipes and primitives to Python developers.
-Author-email: The Python Cryptographic Authority and individual contributors <cryptography-dev@python.org>
-License-Expression: Apache-2.0 OR BSD-3-Clause
-Requires-Python: >=3.8, !=3.9.0, !=3.9.1
-Description-Content-Type: text/x-rst; charset=UTF-8
-Project-URL: homepage, https://github.com/pyca/cryptography
-Project-URL: documentation, https://cryptography.io/
-Project-URL: source, https://github.com/pyca/cryptography/
-Project-URL: issues, https://github.com/pyca/cryptography/issues
-Project-URL: changelog, https://cryptography.io/en/latest/changelog/
+Classifier: Topic :: Internet :: WWW/HTTP :: Dynamic Content
+Classifier: Topic :: Internet :: WWW/HTTP :: WSGI
+Classifier: Topic :: Internet :: WWW/HTTP :: WSGI :: Application
+Classifier: Topic :: Internet :: WWW/HTTP :: WSGI :: Middleware
+Classifier: Topic :: Software Development :: Libraries :: Application Frameworks
+Classifier: Typing :: Typed
+License-File: LICENSE.txt
+Requires-Dist: markupsafe>=2.1.1
+Requires-Dist: watchdog>=2.3 ; extra == "watchdog"
+Project-URL: Changes, https://werkzeug.palletsprojects.com/page/changes/
+Project-URL: Chat, https://discord.gg/pallets
+Project-URL: Documentation, https://werkzeug.palletsprojects.com/
+Project-URL: Donate, https://palletsprojects.com/donate
+Project-URL: Source, https://github.com/pallets/werkzeug/
+Provides-Extra: watchdog
 
-pyca/cryptography
-=================
+<div align="center"><img src="https://raw.githubusercontent.com/pallets/werkzeug/refs/heads/stable/docs/_static/werkzeug-name.svg" alt="" height="150"></div>
 
-.. image:: https://img.shields.io/pypi/v/cryptography.svg
-    :target: https://pypi.org/project/cryptography/
-    :alt: Latest Version
+# Werkzeug
 
-.. image:: https://readthedocs.org/projects/cryptography/badge/?version=latest
-    :target: https://cryptography.io
-    :alt: Latest Docs
+*werkzeug* German noun: "tool". Etymology: *werk* ("work"), *zeug* ("stuff")
 
-.. image:: https://github.com/pyca/cryptography/actions/workflows/ci.yml/badge.svg
-    :target: https://github.com/pyca/cryptography/actions/workflows/ci.yml?query=branch%3Amain
+Werkzeug is a comprehensive [WSGI][] web application library. It began as
+a simple collection of various utilities for WSGI applications and has
+become one of the most advanced WSGI utility libraries.
 
-``cryptography`` is a package which provides cryptographic recipes and
-primitives to Python developers. Our goal is for it to be your "cryptographic
-standard library". It supports Python 3.8+ and PyPy3 7.3.11+.
+It includes:
 
-``cryptography`` includes both high level recipes and low level interfaces to
-common cryptographic algorithms such as symmetric ciphers, message digests, and
-key derivation functions. For example, to encrypt something with
-``cryptography``'s high level symmetric encryption recipe:
+-   An interactive debugger that allows inspecting stack traces and
+    source code in the browser with an interactive interpreter for any
+    frame in the stack.
+-   A full-featured request object with objects to interact with
+    headers, query args, form data, files, and cookies.
+-   A response object that can wrap other WSGI applications and handle
+    streaming data.
+-   A routing system for matching URLs to endpoints and generating URLs
+    for endpoints, with an extensible system for capturing variables
+    from URLs.
+-   HTTP utilities to handle entity tags, cache control, dates, user
+    agents, cookies, files, and more.
+-   A threaded WSGI server for use while developing applications
+    locally.
+-   A test client for simulating HTTP requests during testing without
+    requiring running a server.
 
-.. code-block:: pycon
+Werkzeug doesn't enforce any dependencies. It is up to the developer to
+choose a template engine, database adapter, and even how to handle
+requests. It can be used to build all sorts of end user applications
+such as blogs, wikis, or bulletin boards.
 
-    >>> from cryptography.fernet import Fernet
-    >>> # Put this somewhere safe!
-    >>> key = Fernet.generate_key()
-    >>> f = Fernet(key)
-    >>> token = f.encrypt(b"A really secret message. Not for prying eyes.")
-    >>> token
-    b'...'
-    >>> f.decrypt(token)
-    b'A really secret message. Not for prying eyes.'
+[Flask][] wraps Werkzeug, using it to handle the details of WSGI while
+providing more structure and patterns for defining powerful
+applications.
 
-You can find more information in the `documentation`_.
-
-You can install ``cryptography`` with:
-
-.. code-block:: console
-
-    $ pip install cryptography
-
-For full details see `the installation documentation`_.
-
-Discussion
-~~~~~~~~~~
-
-If you run into bugs, you can file them in our `issue tracker`_.
-
-We maintain a `cryptography-dev`_ mailing list for development discussion.
-
-You can also join ``#pyca`` on ``irc.libera.chat`` to ask questions or get
-involved.
-
-Security
-~~~~~~~~
-
-Need to report a security issue? Please consult our `security reporting`_
-documentation.
+[WSGI]: https://wsgi.readthedocs.io/en/latest/
+[Flask]: https://www.palletsprojects.com/p/flask/
 
 
-.. _`documentation`: https://cryptography.io/
-.. _`the installation documentation`: https://cryptography.io/en/latest/installation/
-.. _`issue tracker`: https://github.com/pyca/cryptography/issues
-.. _`cryptography-dev`: https://mail.python.org/mailman/listinfo/cryptography-dev
-.. _`security reporting`: https://cryptography.io/en/latest/security/
+## A Simple Example
+
+```python
+# save this as app.py
+from werkzeug.wrappers import Request, Response
+
+@Request.application
+def application(request: Request) -> Response:
+    return Response("Hello, World!")
+
+if __name__ == "__main__":
+    from werkzeug.serving import run_simple
+    run_simple("127.0.0.1", 5000, application)
+```
+
+```
+$ python -m app
+  * Running on http://127.0.0.1:5000/ (Press CTRL+C to quit)
+```
+
+
+## Donate
+
+The Pallets organization develops and supports Werkzeug and other
+popular packages. In order to grow the community of contributors and
+users, and allow the maintainers to devote more time to the projects,
+[please donate today][].
+
+[please donate today]: https://palletsprojects.com/donate
+
+## Contributing
+
+See our [detailed contributing documentation][contrib] for many ways to
+contribute, including reporting issues, requesting features, asking or answering
+questions, and making PRs.
+
+[contrib]: https://palletsprojects.com/contributing/
 
