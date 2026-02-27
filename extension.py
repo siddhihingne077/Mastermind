@@ -1,206 +1,240 @@
-import logging
-from urllib.parse import unquote
+"""distutils.extension
 
-from flask import request
+Provides the Extension class, used to describe C/C++ extension
+modules in setup scripts."""
 
-from .core import ACL_ORIGIN, get_cors_options, get_regexp_pattern, parse_resources, set_cors_headers, try_match_pattern
+import os
+import warnings
 
-LOG = logging.getLogger(__name__)
+# This class is really only used by the "build_ext" command, so it might
+# make sense to put it in distutils.command.build_ext.  However, that
+# module is already big enough, and I want to make this class a bit more
+# complex to simplify some common cases ("foo" module in "foo.c") and do
+# better error-checking ("foo.c" actually exists).
+#
+# Also, putting this in build_ext.py means every setup script would have to
+# import that large-ish module (indirectly, through distutils.core) in
+# order to do anything.
 
+class Extension:
+    """Just a collection of attributes that describes an extension
+    module and everything needed to build it (hopefully in a portable
+    way, but there are hooks that let you be as unportable as you need).
 
-class CORS:
-    """
-    Initializes Cross Origin Resource sharing for the application. The
-    arguments are identical to `cross_origin`, with the addition of a
-    `resources` parameter. The resources parameter defines a series of regular
-    expressions for resource paths to match and optionally, the associated
-    options to be applied to the particular resource. These options are
-    identical to the arguments to `cross_origin`.
-
-    The settings for CORS are determined in the following order
-
-    1. Resource level settings (e.g when passed as a dictionary)
-    2. Keyword argument settings
-    3. App level configuration settings (e.g. CORS_*)
-    4. Default settings
-
-    Note: as it is possible for multiple regular expressions to match a
-    resource path, the regular expressions are first sorted by length,
-    from longest to shortest, in order to attempt to match the most
-    specific regular expression. This allows the definition of a
-    number of specific resource options, with a wildcard fallback
-    for all other resources.
-
-    :param resources:
-        The series of regular expression and (optionally) associated CORS
-        options to be applied to the given resource path.
-
-        If the argument is a dictionary, it's keys must be regular expressions,
-        and the values must be a dictionary of kwargs, identical to the kwargs
-        of this function.
-
-        If the argument is a list, it is expected to be a list of regular
-        expressions, for which the app-wide configured options are applied.
-
-        If the argument is a string, it is expected to be a regular expression
-        for which the app-wide configured options are applied.
-
-        Default : Match all and apply app-level configuration
-
-    :type resources: dict, iterable or string
-
-    :param origins:
-        The origin, or list of origins to allow requests from.
-        The origin(s) may be regular expressions, case-sensitive strings,
-        or else an asterisk.
-
-        ..  note::
-
-            origins must include the schema and the port (if not port 80),
-            e.g.,
-            `CORS(app, origins=["http://localhost:8000", "https://example.com"])`.
-
-        Default : '*'
-    :type origins: list, string or regex
-
-    :param methods:
-        The method or list of methods which the allowed origins are allowed to
-        access for non-simple requests.
-
-        Default : [GET, HEAD, POST, OPTIONS, PUT, PATCH, DELETE]
-    :type methods: list or string
-
-    :param expose_headers:
-        The header or list which are safe to expose to the API of a CORS API
-        specification.
-
-        Default : None
-    :type expose_headers: list or string
-
-    :param allow_headers:
-        The header or list of header field names which can be used when this
-        resource is accessed by allowed origins. The header(s) may be regular
-        expressions, case-sensitive strings, or else an asterisk.
-
-        Default : '*', allow all headers
-    :type allow_headers: list, string or regex
-
-    :param supports_credentials:
-        Allows users to make authenticated requests. If true, injects the
-        `Access-Control-Allow-Credentials` header in responses. This allows
-        cookies and credentials to be submitted across domains.
-
-        :note: This option cannot be used in conjunction with a '*' origin
-
-        Default : False
-    :type supports_credentials: bool
-
-    :param max_age:
-        The maximum time for which this CORS request maybe cached. This value
-        is set as the `Access-Control-Max-Age` header.
-
-        Default : None
-    :type max_age: timedelta, integer, string or None
-
-    :param send_wildcard: If True, and the origins parameter is `*`, a wildcard
-        `Access-Control-Allow-Origin` header is sent, rather than the
-        request's `Origin` header.
-
-        Default : False
-    :type send_wildcard: bool
-
-    :param vary_header:
-        If True, the header Vary: Origin will be returned as per the W3
-        implementation guidelines.
-
-        Setting this header when the `Access-Control-Allow-Origin` is
-        dynamically generated (e.g. when there is more than one allowed
-        origin, and an Origin than '*' is returned) informs CDNs and other
-        caches that the CORS headers are dynamic, and cannot be cached.
-
-        If False, the Vary header will never be injected or altered.
-
-        Default : True
-    :type vary_header: bool
-
-    :param allow_private_network:
-        If True, the response header `Access-Control-Allow-Private-Network`
-        will be set with the value 'true' whenever the request header
-        `Access-Control-Request-Private-Network` has a value 'true'.
-
-        If False, the response header `Access-Control-Allow-Private-Network`
-        will be set with the value 'false' whenever the request header
-        `Access-Control-Request-Private-Network` has a value of 'true'.
-
-        If the request header `Access-Control-Request-Private-Network` is
-        not present or has a value other than 'true', the response header
-        `Access-Control-Allow-Private-Network` will not be set.
-
-        Default : True
-    :type allow_private_network: bool
+    Instance attributes:
+      name : string
+        the full name of the extension, including any packages -- ie.
+        *not* a filename or pathname, but Python dotted name
+      sources : [string]
+        list of source filenames, relative to the distribution root
+        (where the setup script lives), in Unix form (slash-separated)
+        for portability.  Source files may be C, C++, SWIG (.i),
+        platform-specific resource files, or whatever else is recognized
+        by the "build_ext" command as source for a Python extension.
+      include_dirs : [string]
+        list of directories to search for C/C++ header files (in Unix
+        form for portability)
+      define_macros : [(name : string, value : string|None)]
+        list of macros to define; each macro is defined using a 2-tuple,
+        where 'value' is either the string to define it to or None to
+        define it without a particular value (equivalent of "#define
+        FOO" in source or -DFOO on Unix C compiler command line)
+      undef_macros : [string]
+        list of macros to undefine explicitly
+      library_dirs : [string]
+        list of directories to search for C/C++ libraries at link time
+      libraries : [string]
+        list of library names (not filenames or paths) to link against
+      runtime_library_dirs : [string]
+        list of directories to search for C/C++ libraries at run time
+        (for shared extensions, this is when the extension is loaded)
+      extra_objects : [string]
+        list of extra files to link with (eg. object files not implied
+        by 'sources', static library that must be explicitly specified,
+        binary resource files, etc.)
+      extra_compile_args : [string]
+        any extra platform- and compiler-specific information to use
+        when compiling the source files in 'sources'.  For platforms and
+        compilers where "command line" makes sense, this is typically a
+        list of command-line arguments, but for other platforms it could
+        be anything.
+      extra_link_args : [string]
+        any extra platform- and compiler-specific information to use
+        when linking object files together to create the extension (or
+        to create a new static Python interpreter).  Similar
+        interpretation as for 'extra_compile_args'.
+      export_symbols : [string]
+        list of symbols to be exported from a shared extension.  Not
+        used on all platforms, and not generally necessary for Python
+        extensions, which typically export exactly one symbol: "init" +
+        extension_name.
+      swig_opts : [string]
+        any extra options to pass to SWIG if a source file has the .i
+        extension.
+      depends : [string]
+        list of files that the extension depends on
+      language : string
+        extension language (i.e. "c", "c++", "objc"). Will be detected
+        from the source extensions if not provided.
+      optional : boolean
+        specifies that a build failure in the extension should not abort the
+        build process, but simply not install the failing extension.
     """
 
-    def __init__(self, app=None, **kwargs):
-        self._options = kwargs
-        if app is not None:
-            self.init_app(app, **kwargs)
+    # When adding arguments to this constructor, be sure to update
+    # setup_keywords in core.py.
+    def __init__(self, name, sources,
+                  include_dirs=None,
+                  define_macros=None,
+                  undef_macros=None,
+                  library_dirs=None,
+                  libraries=None,
+                  runtime_library_dirs=None,
+                  extra_objects=None,
+                  extra_compile_args=None,
+                  extra_link_args=None,
+                  export_symbols=None,
+                  swig_opts = None,
+                  depends=None,
+                  language=None,
+                  optional=None,
+                  **kw                      # To catch unknown keywords
+                 ):
+        if not isinstance(name, str):
+            raise AssertionError("'name' must be a string")
+        if not (isinstance(sources, list) and
+                all(isinstance(v, str) for v in sources)):
+            raise AssertionError("'sources' must be a list of strings")
 
-    def init_app(self, app, **kwargs):
-        # The resources and options may be specified in the App Config, the CORS constructor
-        # or the kwargs to the call to init_app.
-        options = get_cors_options(app, self._options, kwargs)
+        self.name = name
+        self.sources = sources
+        self.include_dirs = include_dirs or []
+        self.define_macros = define_macros or []
+        self.undef_macros = undef_macros or []
+        self.library_dirs = library_dirs or []
+        self.libraries = libraries or []
+        self.runtime_library_dirs = runtime_library_dirs or []
+        self.extra_objects = extra_objects or []
+        self.extra_compile_args = extra_compile_args or []
+        self.extra_link_args = extra_link_args or []
+        self.export_symbols = export_symbols or []
+        self.swig_opts = swig_opts or []
+        self.depends = depends or []
+        self.language = language
+        self.optional = optional
 
-        # Flatten our resources into a list of the form
-        # (pattern_or_regexp, dictionary_of_options)
-        resources = parse_resources(options.get("resources"))
+        # If there are unknown keyword options, warn about them
+        if len(kw) > 0:
+            options = [repr(option) for option in kw]
+            options = ', '.join(sorted(options))
+            msg = "Unknown Extension options: %s" % options
+            warnings.warn(msg)
 
-        # Compute the options for each resource by combining the options from
-        # the app's configuration, the constructor, the kwargs to init_app, and
-        # finally the options specified in the resources dictionary.
-        resources = [(pattern, get_cors_options(app, options, opts)) for (pattern, opts) in resources]
-
-        # Create a human-readable form of these resources by converting the compiled
-        # regular expressions into strings.
-        resources_human = {get_regexp_pattern(pattern): opts for (pattern, opts) in resources}
-        LOG.debug("Configuring CORS with resources: %s", resources_human)
-
-        cors_after_request = make_after_request_function(resources)
-        app.after_request(cors_after_request)
-
-        # Wrap exception handlers with cross_origin
-        # These error handlers will still respect the behavior of the route
-        if options.get("intercept_exceptions", True):
-
-            def _after_request_decorator(f):
-                def wrapped_function(*args, **kwargs):
-                    return cors_after_request(app.make_response(f(*args, **kwargs)))
-
-                return wrapped_function
-
-            if hasattr(app, "handle_exception"):
-                app.handle_exception = _after_request_decorator(app.handle_exception)
-                app.handle_user_exception = _after_request_decorator(app.handle_user_exception)
+    def __repr__(self):
+        return '<%s.%s(%r) at %#x>' % (
+            self.__class__.__module__,
+            self.__class__.__qualname__,
+            self.name,
+            id(self))
 
 
-def make_after_request_function(resources):
-    def cors_after_request(resp):
-        # If CORS headers are set in a view decorator, pass
-        if resp.headers is not None and resp.headers.get(ACL_ORIGIN):
-            LOG.debug("CORS have been already evaluated, skipping")
-            return resp
-        normalized_path = unquote(request.path)
-        for res_regex, res_options in resources:
-            if try_match_pattern(normalized_path, res_regex, caseSensitive=True):
-                LOG.debug(
-                    "Request to '%r' matches CORS resource '%s'. Using options: %s",
-                    request.path,
-                    get_regexp_pattern(res_regex),
-                    res_options,
-                )
-                set_cors_headers(resp, res_options)
+def read_setup_file(filename):
+    """Reads a Setup file and returns Extension instances."""
+    from distutils.sysconfig import (parse_makefile, expand_makefile_vars,
+                                     _variable_rx)
+
+    from distutils.text_file import TextFile
+    from distutils.util import split_quoted
+
+    # First pass over the file to gather "VAR = VALUE" assignments.
+    vars = parse_makefile(filename)
+
+    # Second pass to gobble up the real content: lines of the form
+    #   <module> ... [<sourcefile> ...] [<cpparg> ...] [<library> ...]
+    file = TextFile(filename,
+                    strip_comments=1, skip_blanks=1, join_lines=1,
+                    lstrip_ws=1, rstrip_ws=1)
+    try:
+        extensions = []
+
+        while True:
+            line = file.readline()
+            if line is None:                # eof
                 break
-        else:
-            LOG.debug("No CORS rule matches")
-        return resp
+            if _variable_rx.match(line):    # VAR=VALUE, handled in first pass
+                continue
 
-    return cors_after_request
+            if line[0] == line[-1] == "*":
+                file.warn("'%s' lines not handled yet" % line)
+                continue
+
+            line = expand_makefile_vars(line, vars)
+            words = split_quoted(line)
+
+            # NB. this parses a slightly different syntax than the old
+            # makesetup script: here, there must be exactly one extension per
+            # line, and it must be the first word of the line.  I have no idea
+            # why the old syntax supported multiple extensions per line, as
+            # they all wind up being the same.
+
+            module = words[0]
+            ext = Extension(module, [])
+            append_next_word = None
+
+            for word in words[1:]:
+                if append_next_word is not None:
+                    append_next_word.append(word)
+                    append_next_word = None
+                    continue
+
+                suffix = os.path.splitext(word)[1]
+                switch = word[0:2] ; value = word[2:]
+
+                if suffix in (".c", ".cc", ".cpp", ".cxx", ".c++", ".m", ".mm"):
+                    # hmm, should we do something about C vs. C++ sources?
+                    # or leave it up to the CCompiler implementation to
+                    # worry about?
+                    ext.sources.append(word)
+                elif switch == "-I":
+                    ext.include_dirs.append(value)
+                elif switch == "-D":
+                    equals = value.find("=")
+                    if equals == -1:        # bare "-DFOO" -- no value
+                        ext.define_macros.append((value, None))
+                    else:                   # "-DFOO=blah"
+                        ext.define_macros.append((value[0:equals],
+                                                  value[equals+2:]))
+                elif switch == "-U":
+                    ext.undef_macros.append(value)
+                elif switch == "-C":        # only here 'cause makesetup has it!
+                    ext.extra_compile_args.append(word)
+                elif switch == "-l":
+                    ext.libraries.append(value)
+                elif switch == "-L":
+                    ext.library_dirs.append(value)
+                elif switch == "-R":
+                    ext.runtime_library_dirs.append(value)
+                elif word == "-rpath":
+                    append_next_word = ext.runtime_library_dirs
+                elif word == "-Xlinker":
+                    append_next_word = ext.extra_link_args
+                elif word == "-Xcompiler":
+                    append_next_word = ext.extra_compile_args
+                elif switch == "-u":
+                    ext.extra_link_args.append(word)
+                    if not value:
+                        append_next_word = ext.extra_link_args
+                elif suffix in (".a", ".so", ".sl", ".o", ".dylib"):
+                    # NB. a really faithful emulation of makesetup would
+                    # append a .o file to extra_objects only if it
+                    # had a slash in it; otherwise, it would s/.o/.c/
+                    # and append it to sources.  Hmmmm.
+                    ext.extra_objects.append(word)
+                else:
+                    file.warn("unrecognized argument '%s'" % word)
+
+            extensions.append(ext)
+    finally:
+        file.close()
+
+    return extensions
