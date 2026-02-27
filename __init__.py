@@ -1,26 +1,26 @@
-# This file is dual licensed under the terms of the Apache License, Version
-# 2.0, and the BSD License. See the LICENSE file in the root of this repository
-# for complete details.
-from __future__ import absolute_import, division, print_function
+from __future__ import annotations
 
-from .__about__ import (
-    __author__,
-    __copyright__,
-    __email__,
-    __license__,
-    __summary__,
-    __title__,
-    __uri__,
-    __version__,
-)
+import typing as t
+
+from .extension import SQLAlchemy
 
 __all__ = [
-    "__title__",
-    "__summary__",
-    "__uri__",
-    "__version__",
-    "__author__",
-    "__email__",
-    "__license__",
-    "__copyright__",
+    "SQLAlchemy",
 ]
+
+
+def __getattr__(name: str) -> t.Any:
+    if name == "__version__":
+        import importlib.metadata
+        import warnings
+
+        warnings.warn(
+            "The '__version__' attribute is deprecated and will be removed in"
+            " Flask-SQLAlchemy 3.2. Use feature detection or"
+            " 'importlib.metadata.version(\"flask-sqlalchemy\")' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return importlib.metadata.version("flask-sqlalchemy")
+
+    raise AttributeError(name)
