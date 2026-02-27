@@ -1,209 +1,270 @@
-Metadata-Version: 2.4
-Name: idna
-Version: 3.11
-Summary: Internationalized Domain Names in Applications (IDNA)
-Author-email: Kim Davies <kim+pypi@gumleaf.org>
-Requires-Python: >=3.8
-Description-Content-Type: text/x-rst
-License-Expression: BSD-3-Clause
+Metadata-Version: 2.1
+Name: requests-oauthlib
+Version: 2.0.0
+Summary: OAuthlib authentication support for Requests.
+Home-page: https://github.com/requests/requests-oauthlib
+Author: Kenneth Reitz
+Author-email: me@kennethreitz.com
+License: ISC
 Classifier: Development Status :: 5 - Production/Stable
 Classifier: Intended Audience :: Developers
-Classifier: Intended Audience :: System Administrators
-Classifier: Operating System :: OS Independent
+Classifier: Natural Language :: English
+Classifier: License :: OSI Approved :: BSD License
 Classifier: Programming Language :: Python
 Classifier: Programming Language :: Python :: 3
-Classifier: Programming Language :: Python :: 3 :: Only
+Classifier: Programming Language :: Python :: 3.4
+Classifier: Programming Language :: Python :: 3.5
+Classifier: Programming Language :: Python :: 3.6
+Classifier: Programming Language :: Python :: 3.7
 Classifier: Programming Language :: Python :: 3.8
 Classifier: Programming Language :: Python :: 3.9
 Classifier: Programming Language :: Python :: 3.10
 Classifier: Programming Language :: Python :: 3.11
 Classifier: Programming Language :: Python :: 3.12
-Classifier: Programming Language :: Python :: 3.13
-Classifier: Programming Language :: Python :: 3.14
 Classifier: Programming Language :: Python :: Implementation :: CPython
 Classifier: Programming Language :: Python :: Implementation :: PyPy
-Classifier: Topic :: Internet :: Name Service (DNS)
-Classifier: Topic :: Software Development :: Libraries :: Python Modules
-Classifier: Topic :: Utilities
-License-File: LICENSE.md
-Requires-Dist: ruff >= 0.6.2 ; extra == "all"
-Requires-Dist: mypy >= 1.11.2 ; extra == "all"
-Requires-Dist: pytest >= 8.3.2 ; extra == "all"
-Requires-Dist: flake8 >= 7.1.1 ; extra == "all"
-Project-URL: Changelog, https://github.com/kjd/idna/blob/master/HISTORY.rst
-Project-URL: Issue tracker, https://github.com/kjd/idna/issues
-Project-URL: Source, https://github.com/kjd/idna
-Provides-Extra: all
+Requires-Python: >=3.4
+Description-Content-Type: text/x-rst
+License-File: LICENSE
+Requires-Dist: oauthlib >=3.0.0
+Requires-Dist: requests >=2.0.0
+Provides-Extra: rsa
+Requires-Dist: oauthlib[signedtoken] >=3.0.0 ; extra == 'rsa'
 
-Internationalized Domain Names in Applications (IDNA)
-=====================================================
+Requests-OAuthlib |build-status| |coverage-status| |docs|
+=========================================================
 
-Support for `Internationalized Domain Names in
-Applications (IDNA) <https://tools.ietf.org/html/rfc5891>`_
-and `Unicode IDNA Compatibility Processing
-<https://unicode.org/reports/tr46/>`_.
+This project provides first-class OAuth library support for `Requests <https://requests.readthedocs.io>`_.
 
-The latest versions of these standards supplied here provide
-more comprehensive language coverage and reduce the potential of
-allowing domains with known security vulnerabilities. This library
-is a suitable replacement for the “encodings.idna”
-module that comes with the Python standard library, but which
-only supports an older superseded IDNA specification from 2003.
+The OAuth 1 workflow
+--------------------
 
-Basic functions are simply executed:
+OAuth 1 can seem overly complicated and it sure has its quirks. Luckily,
+requests_oauthlib hides most of these and let you focus at the task at hand.
+
+Accessing protected resources using requests_oauthlib is as simple as:
 
 .. code-block:: pycon
 
-    >>> import idna
-    >>> idna.encode('ドメイン.テスト')
-    b'xn--eckwd4c7c.xn--zckzah'
-    >>> print(idna.decode('xn--eckwd4c7c.xn--zckzah'))
-    ドメイン.テスト
+    >>> from requests_oauthlib import OAuth1Session
+    >>> twitter = OAuth1Session('client_key',
+                                client_secret='client_secret',
+                                resource_owner_key='resource_owner_key',
+                                resource_owner_secret='resource_owner_secret')
+    >>> url = 'https://api.twitter.com/1/account/settings.json'
+    >>> r = twitter.get(url)
 
+Before accessing resources you will need to obtain a few credentials from your
+provider (e.g. Twitter) and authorization from the user for whom you wish to
+retrieve resources for. You can read all about this in the full
+`OAuth 1 workflow guide on RTD <https://requests-oauthlib.readthedocs.io/en/latest/oauth1_workflow.html>`_.
+
+The OAuth 2 workflow
+--------------------
+
+OAuth 2 is generally simpler than OAuth 1 but comes in more flavours. The most
+common being the Authorization Code Grant, also known as the WebApplication
+flow.
+
+Fetching a protected resource after obtaining an access token can be extremely
+simple. However, before accessing resources you will need to obtain a few
+credentials from your provider (e.g. Google) and authorization from the user
+for whom you wish to retrieve resources for. You can read all about this in the
+full `OAuth 2 workflow guide on RTD <https://requests-oauthlib.readthedocs.io/en/latest/oauth2_workflow.html>`_.
 
 Installation
-------------
+-------------
 
-This package is available for installation from PyPI via the
-typical mechanisms, such as:
+To install requests and requests_oauthlib you can use pip:
 
 .. code-block:: bash
 
-    $ python3 -m pip install idna
+    pip install requests requests-oauthlib
+
+.. |build-status| image:: https://github.com/requests/requests-oauthlib/actions/workflows/run-tests.yml/badge.svg
+   :target: https://github.com/requests/requests-oauthlib/actions
+.. |coverage-status| image:: https://img.shields.io/coveralls/requests/requests-oauthlib.svg
+   :target: https://coveralls.io/r/requests/requests-oauthlib
+.. |docs| image:: https://readthedocs.org/projects/requests-oauthlib/badge/
+   :alt: Documentation Status
+   :scale: 100%
+   :target: https://requests-oauthlib.readthedocs.io/
 
 
-Usage
------
+History
+-------
 
-For typical usage, the ``encode`` and ``decode`` functions will take a
-domain name argument and perform a conversion to ASCII compatible encoding
-(known as A-labels), or to Unicode strings (known as U-labels)
-respectively.
+v2.0.0 (22 March 2024)
+++++++++++++++++++++++++
 
-.. code-block:: pycon
+Full set of changes are in [github](https://github.com/requests/requests-oauthlib/milestone/4?closed=1).
 
-    >>> import idna
-    >>> idna.encode('ドメイン.テスト')
-    b'xn--eckwd4c7c.xn--zckzah'
-    >>> print(idna.decode('xn--eckwd4c7c.xn--zckzah'))
-    ドメイン.テスト
+Additions & changes:
 
-Conversions can be applied at a per-label basis using the ``ulabel`` or
-``alabel`` functions if necessary:
+- ``OAuth2Session`` now correctly uses the ``self.verify`` value if ``verify``
+  is not overridden in ``fetch_token`` and ``refresh_token``. Fixes `#404
+  <https://github.com/requests/requests-oauthlib/issues/404>`_.
+- ``OAuth2Session`` constructor now uses its ``client.scope`` when a ``client``
+  is provided and ``scope`` is not overridden. Fixes `#408
+  <https://github.com/requests/requests-oauthlib/issues/408>`_
+- Add ``refresh_token_request`` and ``access_token_request`` compliance hooks
+- Add PKCE support and Auth0 example
+- Add support for Python 3.8-3.12
+- Remove support of Python 2.x, <3.7
+- Migrated to Github Action
+- Updated dependencies
+- Cleanup some docs and examples
 
-.. code-block:: pycon
+v1.4.0 (27 Feb 2024)
+++++++++++++++++++++++++
 
-    >>> idna.alabel('测试')
-    b'xn--0zwm56d'
+- Version 2.0.0 published initially as 1.4.0, it was yanked eventually.
+
+v1.3.1 (21 January 2022)
+++++++++++++++++++++++++
+
+- Add initial support for OAuth Mutual TLS (draft-ietf-oauth-mtls)
+- Removed outdated LinkedIn Compliance Fixes
+- Add eBay compliance fix
+- Add Spotify OAuth 2 Tutorial
+- Add support for python 3.8, 3.9
+- Fixed LinkedIn Compliance Fixes
+- Fixed ReadTheDocs Documentation and sphinx errors
+- Moved pipeline to GitHub Actions
+
+v1.3.0 (6 November 2019)
+++++++++++++++++++++++++
+
+- Instagram compliance fix
+- Added ``force_querystring`` argument to fetch_token() method on OAuth2Session
+
+v1.2.0 (14 January 2019)
+++++++++++++++++++++++++
+
+- This project now depends on OAuthlib 3.0.0 and above. It does **not** support
+  versions of OAuthlib before 3.0.0.
+- Updated oauth2 tests to use 'sess' for an OAuth2Session instance instead of `auth`
+  because OAuth2Session objects and methods acceept an `auth` paramether which is
+  typically an instance of `requests.auth.HTTPBasicAuth`
+- `OAuth2Session.fetch_token` previously tried to guess how and where to provide
+  "client" and "user" credentials incorrectly. This was incompatible with some
+  OAuth servers and incompatible with breaking changes in oauthlib that seek to
+  correctly provide the `client_id`. The older implementation also did not raise
+  the correct exceptions when username and password are not present on Legacy
+  clients.
+- Avoid automatic netrc authentication for OAuth2Session.
+
+v1.1.0 (9 January 2019)
++++++++++++++++++++++++
+
+- Adjusted version specifier for ``oauthlib`` dependency: this project is
+  not yet compatible with ``oauthlib`` 3.0.0.
+- Dropped dependency on ``nose``.
+- Minor changes to clean up the code and make it more readable/maintainable.
+
+v1.0.0 (4 June 2018)
+++++++++++++++++++++
+
+- **Removed support for Python 2.6 and Python 3.3.**
+  This project now supports Python 2.7, and Python 3.4 and above.
+- Added several examples to the documentation.
+- Added plentymarkets compliance fix.
+- Added a ``token`` property to OAuth1Session, to match the corresponding
+  ``token`` property on OAuth2Session.
+
+v0.8.0 (14 February 2017)
++++++++++++++++++++++++++
+
+- Added Fitbit compliance fix.
+- Fixed an issue where newlines in the response body for the access token
+  request would cause errors when trying to extract the token.
+- Fixed an issue introduced in v0.7.0 where users passing ``auth`` to several
+  methods would encounter conflicts with the ``client_id`` and
+  ``client_secret``-derived auth. The user-supplied ``auth`` argument is now
+  used in preference to those options.
+
+v0.7.0 (22 September 2016)
+++++++++++++++++++++++++++
+
+- Allowed ``OAuth2Session.request`` to take the ``client_id`` and
+  ``client_secret`` parameters for the purposes of automatic token refresh,
+  which may need them.
+
+v0.6.2 (12 July 2016)
++++++++++++++++++++++
+
+- Use ``client_id`` and ``client_secret`` for the Authorization header if
+  provided.
+- Allow explicit bypass of the Authorization header by setting ``auth=False``.
+- Pass through the ``proxies`` kwarg when refreshing tokens.
+- Miscellaneous cleanups.
+
+v0.6.1 (19 February 2016)
++++++++++++++++++++++++++
+
+- Fixed a bug when sending authorization in headers with no username and
+  password present.
+- Make sure we clear the session token before obtaining a new one.
+- Some improvements to the Slack compliance fix.
+- Avoid timing problems around token refresh.
+- Allow passing arbitrary arguments to requests when calling
+  ``fetch_request_token`` and ``fetch_access_token``.
+
+v0.6.0 (14 December 2015)
++++++++++++++++++++++++++
+
+- Add compliance fix for Slack.
+- Add compliance fix for Mailchimp.
+- ``TokenRequestDenied`` exceptions now carry the entire response, not just the
+  status code.
+- Pass through keyword arguments when refreshing tokens automatically.
+- Send authorization in headers, not just body, to maximize compatibility.
+- More getters/setters available for OAuth2 session client values.
+- Allow sending custom headers when refreshing tokens, and set some defaults.
 
 
-Compatibility Mapping (UTS #46)
-+++++++++++++++++++++++++++++++
+v0.5.0 (4 May 2015)
++++++++++++++++++++
+- Fix ``TypeError`` being raised instead of ``TokenMissing`` error.
+- Raise requests exceptions on 4XX and 5XX responses in the OAuth2 flow.
+- Avoid ``AttributeError`` when initializing the ``OAuth2Session`` class
+  without complete client information.
 
-This library provides support for `Unicode IDNA Compatibility
-Processing <https://unicode.org/reports/tr46/>`_ which normalizes input from
-different potential ways a user may input a domain prior to performing the IDNA
-conversion operations. This functionality, known as a 
-`mapping <https://tools.ietf.org/html/rfc5895>`_, is considered by the
-specification to be a local user-interface issue distinct from IDNA
-conversion functionality.
+v0.4.2 (16 October 2014)
+++++++++++++++++++++++++
+- New ``authorized`` property on OAuth1Session and OAuth2Session, which allows
+  you to easily determine if the session is already authorized with OAuth tokens
+  or not.
+- New ``TokenMissing`` and ``VerifierMissing`` exception classes for OAuth1Session:
+  this will make it easier to catch and identify these exceptions.
 
-For example, “Königsgäßchen” is not a permissible label as *LATIN
-CAPITAL LETTER K* is not allowed (nor are capital letters in general).
-UTS 46 will convert this into lower case prior to applying the IDNA
-conversion.
+v0.4.1 (6 June 2014)
+++++++++++++++++++++
+- New install target ``[rsa]`` for people using OAuth1 RSA-SHA1 signature
+  method.
+- Fixed bug in OAuth2 where supplied state param was not used in auth url.
+- OAuth2 HTTPS checking can be disabled by setting environment variable
+  ``OAUTHLIB_INSECURE_TRANSPORT``.
+- OAuth1 now re-authorize upon redirects.
+- OAuth1 token fetching now raise a detailed error message when the
+  response body is incorrectly encoded or the request was denied.
+- Added support for custom OAuth1 clients.
+- OAuth2 compliance fix for Sina Weibo.
+- Multiple fixes to facebook compliance fix.
+- Compliance fixes now re-encode body properly as bytes in Python 3.
+- Logging now properly done under ``requests_oauthlib`` namespace instead
+  of piggybacking on oauthlib namespace.
+- Logging introduced for OAuth1 auth and session.
 
-.. code-block:: pycon
-
-    >>> import idna
-    >>> idna.encode('Königsgäßchen')
-    ...
-    idna.core.InvalidCodepoint: Codepoint U+004B at position 1 of 'Königsgäßchen' not allowed
-    >>> idna.encode('Königsgäßchen', uts46=True)
-    b'xn--knigsgchen-b4a3dun'
-    >>> print(idna.decode('xn--knigsgchen-b4a3dun'))
-    königsgäßchen
-
-
-Exceptions
-----------
-
-All errors raised during the conversion following the specification
-should raise an exception derived from the ``idna.IDNAError`` base
-class.
-
-More specific exceptions that may be generated as ``idna.IDNABidiError``
-when the error reflects an illegal combination of left-to-right and
-right-to-left characters in a label; ``idna.InvalidCodepoint`` when
-a specific codepoint is an illegal character in an IDN label (i.e.
-INVALID); and ``idna.InvalidCodepointContext`` when the codepoint is
-illegal based on its position in the string (i.e. it is CONTEXTO or CONTEXTJ
-but the contextual requirements are not satisfied.)
-
-Building and Diagnostics
-------------------------
-
-The IDNA and UTS 46 functionality relies upon pre-calculated lookup
-tables for performance. These tables are derived from computing against
-eligibility criteria in the respective standards using the command-line
-script ``tools/idna-data``.
-
-This tool will fetch relevant codepoint data from the Unicode repository
-and perform the required calculations to identify eligibility. There are
-three main modes:
-
-* ``idna-data make-libdata``. Generates ``idnadata.py`` and
-  ``uts46data.py``, the pre-calculated lookup tables used for IDNA and
-  UTS 46 conversions. Implementers who wish to track this library against
-  a different Unicode version may use this tool to manually generate a
-  different version of the ``idnadata.py`` and ``uts46data.py`` files.
-
-* ``idna-data make-table``. Generate a table of the IDNA disposition
-  (e.g. PVALID, CONTEXTJ, CONTEXTO) in the format found in Appendix
-  B.1 of RFC 5892 and the pre-computed tables published by `IANA
-  <https://www.iana.org/>`_.
-
-* ``idna-data U+0061``. Prints debugging output on the various
-  properties associated with an individual Unicode codepoint (in this
-  case, U+0061), that are used to assess the IDNA and UTS 46 status of a
-  codepoint. This is helpful in debugging or analysis.
-
-The tool accepts a number of arguments, described using ``idna-data
--h``. Most notably, the ``--version`` argument allows the specification
-of the version of Unicode to be used in computing the table data. For
-example, ``idna-data --version 9.0.0 make-libdata`` will generate
-library data against Unicode 9.0.0.
-
-
-Additional Notes
-----------------
-
-* **Packages**. The latest tagged release version is published in the
-  `Python Package Index <https://pypi.org/project/idna/>`_.
-
-* **Version support**. This library supports Python 3.8 and higher.
-  As this library serves as a low-level toolkit for a variety of
-  applications, many of which strive for broad compatibility with older
-  Python versions, there is no rush to remove older interpreter support.
-  Support for older versions are likely to be removed from new releases
-  as automated tests can no longer easily be run, i.e. once the Python
-  version is officially end-of-life.
-
-* **Testing**. The library has a test suite based on each rule of the
-  IDNA specification, as well as tests that are provided as part of the
-  Unicode Technical Standard 46, `Unicode IDNA Compatibility Processing
-  <https://unicode.org/reports/tr46/>`_.
-
-* **Emoji**. It is an occasional request to support emoji domains in
-  this library. Encoding of symbols like emoji is expressly prohibited by
-  the technical standard IDNA 2008 and emoji domains are broadly phased
-  out across the domain industry due to associated security risks. For
-  now, applications that need to support these non-compliant labels
-  may wish to consider trying the encode/decode operation in this library
-  first, and then falling back to using `encodings.idna`. See `the Github
-  project <https://github.com/kjd/idna/issues/18>`_ for more discussion.
-
-* **Transitional processing**. Unicode 16.0.0 removed transitional
-  processing so the `transitional` argument for the encode() method
-  no longer has any effect and will be removed at a later date.
-
+v0.4.0 (29 September 2013)
+++++++++++++++++++++++++++
+- OAuth1Session methods only return unicode strings. #55.
+- Renamed requests_oauthlib.core to requests_oauthlib.oauth1_auth for consistency. #79.
+- Added Facebook compliance fix and access_token_response hook to OAuth2Session. #63.
+- Added LinkedIn compliance fix.
+- Added refresh_token_response compliance hook, invoked before parsing the refresh token.
+- Correctly limit compliance hooks to running only once!
+- Content type guessing should only be done when no content type is given
+- OAuth1 now updates r.headers instead of replacing it with non case insensitive dict
+- Remove last use of Response.content (in OAuth1Session). #44.
+- State param can now be supplied in OAuth2Session.authorize_url
